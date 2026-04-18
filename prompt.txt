@@ -1,0 +1,164 @@
+You are building a Python package named `density2sse` from the provided implementation specification.
+
+Your goal is NOT to generate disconnected code files.
+Your goal is to generate a usable, documented, testable CLI project that a human can run end-to-end without reading all source files manually.
+
+You must treat documentation, configs, CLI ergonomics, and step-by-step usability as first-class deliverables.
+
+Use the provided implementation document as the source of truth.
+
+================================
+PRIMARY DELIVERABLE
+================================
+
+Build an installable package exposing:
+
+    density2sse <subcommand> -i config.yaml
+
+with these subcommands:
+
+- init
+- generate-data
+- train
+- infer
+- export
+- run
+- test
+- validate-config
+
+The project must support pip installation and YAML-only configuration.
+
+================================
+NON-NEGOTIABLE REQUIREMENTS
+================================
+
+1. Create a complete `README.md` before or alongside implementation.
+2. The README must include copy-paste-ready commands.
+3. The project must be runnable by a user who does NOT inspect source code line by line.
+4. Every config parameter used by the code must live in YAML.
+5. MRC I/O must use `mrcfile`.
+6. The package must include tests and a tiny end-to-end smoke path.
+7. Do not start with diffusion.
+8. Do not leave “TODO: user should decide” gaps if the spec already defines defaults.
+9. If ChimeraX molmap integration is inconvenient, implement the internal fallback renderer first, but keep a clean adapter interface for future molmap support.
+
+================================
+IMPLEMENTATION ORDER
+================================
+
+Follow this order exactly.
+
+PHASE 0 — REPOSITORY SKELETON
+- Create package layout
+- Create `pyproject.toml`
+- Create CLI entrypoint
+- Create `configs/`
+- Create `tests/`
+- Create `examples/`
+
+PHASE 1 — USER-FACING DOCUMENTATION
+- Write `README.md`
+- Include:
+  - what the package does
+  - installation
+  - quick start
+  - command reference
+  - config guide
+  - data generation guide
+  - training guide
+  - inference guide
+  - outputs guide
+  - tests
+  - known limitations
+- Add example commands for every CLI subcommand
+
+PHASE 2 — CONFIG SYSTEM
+- Implement YAML loading
+- Implement validation
+- Implement config resolution and saving
+- Implement `density2sse validate-conf:contentReference[oaicite:2]{index=2}te_data.yaml
+  - train.yaml
+  - infer.yaml
+  - export.yaml
+
+PHASE 3 — CORE GEOMETRY + I/O
+- Implement helix primitive
+- Implement canonical alpha-helix builder
+- Implement PDB writer
+- Implement MRC reader/writer using `mrcfile`
+
+PHASE 4 — DATA GENERATION
+- Implement synthetic helix generator
+- Implement non-overlap checking in voxel occupancy space
+- Implement cylinder/tube fallback renderer
+- Implement dataset writer to NPZ
+- Implement `density2sse generate-data`
+
+PHASE 5 — BASELINE MODEL
+- Implement simple 3D CNN baseline
+- Input: mask + K
+- Output: K helices
+- Implement Hungarian matching
+- Implement losses
+
+PHASE 6 — TRAINING PIPELINE
+- Implement dataloaders
+- Implement trainer
+- Implement checkpointing
+- Implement metrics logging
+- Implement tiny overfit mode
+- Implement `density2sse train`
+
+PHASE 7 — INFERENCE + EXPORT
+- Implement inference path from user MRC
+- Implement export to NPZ/JSON/PDB
+- Implement `density2sse infer`
+- Implement `density2sse export`
+
+PHASE 8 — TESTING
+- Add unit tests
+- Add CLI smoke tests
+- Add small integration test:
+  - generate tiny data
+  - train 1 epoch
+  - infer 1 sample
+  - export PDB
+
+================================
+SUCCESS CRITERIA
+================================
+
+The work is only complete if all of the following hold:
+
+1. `pip install -e .` works
+2. `density2sse init -o demo_project` works
+3. `density2sse generate-data -i configs/generate_data.yaml` works
+4. `density2sse train -i configs/train.yaml` runs
+5. tiny-overfit mode works on a tiny synthetic dataset
+6. `density2sse infer -i configs/infer.yaml` writes prediction outputs
+7. exported PDB opens in standard molecular viewers
+8. README contains exact step-by-step instructions
+9. tests can be executed by the user from the command line
+
+================================
+ENGINEERING STYLE
+================================
+
+- Use clear module boundaries
+- Use type hints
+- Use dataclasses where appropriate
+- Add docstrings to public functions
+- Keep dependencies minimal
+- Prefer correctness and debuggability over sophistication
+- Add helpful error messages
+- Add logging
+- Save config snapshots in outputs
+
+================================
+IMPORTANT EXECUTION RULE
+================================
+
+Do not just write source files.
+
+At the end of each major phase, ensure there is an obvious command a human can run next.
+The generated repository should feel like a real tool, not a partial research prototype.
