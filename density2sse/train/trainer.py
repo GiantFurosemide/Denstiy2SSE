@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import csv
+import glob
 import os
+import re
 import shutil
 from typing import Any, Dict, Optional
 
@@ -17,6 +19,48 @@ from density2sse.train import losses as loss_mod
 from density2sse.utils.logging_utils import setup_logging
 
 LOG = setup_logging(name="density2sse.train")
+
+
+def _prune_epoch_checkpoints(ckpt_dir: str, keep_last_k: int) -> None:
+    if keep_last_k <= 0:
+        return
+
+    def _epoch_key(p: str) -> int:
+        m = re.search(r"epoch_(\d+)", os.path.basename(p))
+        return int(m.group(1)) if m else 0
+
+    paths = sorted(glob.glob(os.path.join(ckpt_dir, "epoch_*.pt")), key=_epoch_key)
+    if len(paths) <= keep_last_k:
+        return
+    for p in paths[:-keep_last_k]:
+        try:
+            os.remove(p)
+        except OSError:
+            LOG.warning("Could not remove old epoch checkpoint %s", p)
+
+
+def _checkpoint_payload(
+    model_state: Dict[str, Any],
+    epoch: int,
+    max_K: int,
+    box: int,
+    vs: float,
+    mcfg: Dict[str, Any],
+    box_extent: float,
+) -> Dict[str, Any]:
+    """Bundle weights plus architecture hyperparameters for robust inference loading."""
+    return {
+        "model": model_state,
+        "epoch": epoch,
+        "model_config": {
+            "max_K": int(max_K),
+            "box_size": int(box),
+            "in_channels": int(mcfg["in_channels"]),
+            "base_channels": int(mcfg["base_channels"]),
+            "hidden_dim": int(mcfg["hidden_dim"]),
+            "box_extent_angstrom": float(box_extent),
+        },
+    }
 
 
 def train_epoch(
@@ -153,7 +197,18 @@ def run_training(
             LOG.info("epoch %s train=%.6f val=%.6f", epoch, tr, va)
             if va < best_val:
                 best_val = va
-                torch.save({"model": model.state_dict(), "epoch": epoch}, os.path.join(ckpt_dir, "best.pt"))
+                torch.save(
+                    _checkpoint_payload(
+                        model.state_dict(),
+                        epoch,
+                        max_K,
+                        box,
+                        vs,
+                        mcfg,
+                        box_extent,
+                    ),
+                    os.path.join(ckpt_dir, "best.pt"),
+                )
         else:
             LOG.info("epoch %s train=%.6f", epoch, tr)
         with open(metrics_path, "a", newline="", encoding="utf-8") as f:
@@ -161,7 +216,35 @@ def run_training(
             if f.tell() == 0:
                 w.writeheader()
             w.writerow(row)
-        torch.save({"model": model.state_dict(), "epoch": epoch}, os.path.join(ckpt_dir, "last.pt"))
+        torch.save(
+            _checkpoint_payload(
+                model.state_dict(),
+                epoch,
+                max_K,
+                box,
+                vs,
+                mcfg,
+                box_extent,
+            ),
+            os.path.join(ckpt_dir, "last.pt"),
+        )
+        if tcfg.get("save_every_epoch"):
+            pattern = str(tcfg.get("checkpoint_pattern", "epoch_{epoch:04d}.pt"))
+            ep_name = pattern.format(epoch=epoch)
+            torch.save(
+                _checkpoint_payload(
+                    model.state_dict(),
+                    epoch,
+                    max_K,
+                    box,
+                    vs,
+                    mcfg,
+                    box_extent,
+                ),
+                os.path.join(ckpt_dir, ep_name),
+            )
+            keep_k = int(tcfg.get("keep_last_k_epoch_checkpoints", 0))
+            _prune_epoch_checkpoints(ckpt_dir, keep_k)
 
     if val_loader is None:
         shutil.copy(os.path.join(ckpt_dir, "last.pt"), os.path.join(ckpt_dir, "best.pt"))

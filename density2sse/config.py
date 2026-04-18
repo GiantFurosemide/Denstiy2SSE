@@ -36,6 +36,7 @@ DEFAULTS: Dict[str, Any] = {
         "length_max": 30.0,
         "export_mrc": False,
         "export_pdb": False,
+        "num_workers": 1,
     },
     "model": {
         "name": "baseline_cnn",
@@ -52,6 +53,9 @@ DEFAULTS: Dict[str, Any] = {
         "device": "cpu",
         "tiny_overfit": False,
         "tiny_num_samples": 8,
+        "save_every_epoch": False,
+        "checkpoint_pattern": "epoch_{epoch:04d}.pt",
+        "keep_last_k_epoch_checkpoints": 0,
     },
     "loss": {"w_pos": 1.0, "w_dir": 1.0, "w_len": 1.0},
     "inference": {
@@ -60,6 +64,7 @@ DEFAULTS: Dict[str, Any] = {
         "export_pdb": True,
         "input_mrc": None,
         "output_prefix": "outputs/infer/run",
+        "write_frame_json": True,
     },
     "export": {
         "input_npz": None,

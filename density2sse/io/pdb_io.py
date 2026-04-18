@@ -26,6 +26,26 @@ def _element_for(name: str) -> str:
     return n[0]
 
 
+def _chain_id_for_index(ci: int) -> str:
+    """
+    Exactly **62** single-character chain IDs: ``A-Z``, ``a-z``, ``0-9``.
+    Indices beyond 61 are not supported for one PDB file (split or lower ``K_max``).
+    """
+    symbols = (
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789"
+    )
+    if ci < 0:
+        raise ValueError("chain index must be non-negative")
+    if ci >= len(symbols):
+        raise ValueError(
+            f"At most {len(symbols)} chains per PDB (got chain index {ci}). "
+            "Lower K_max or write multiple PDBs."
+        )
+    return symbols[ci]
+
+
 def _fullname(name: str) -> str:
     n = name.strip()
     if len(n) == 1:
@@ -49,10 +69,9 @@ def write_backbone_pdb(
     structure = Structure(title[:40])
     model = Model(0)
     structure.add(model)
-    chain_ids = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     serial = 1
     for ci, chain_residues in enumerate(chains):
-        cid = chain_ids[ci % len(chain_ids)]
+        cid = _chain_id_for_index(ci)
         chain = Chain(cid)
         model.add(chain)
         for ri, residue_atoms in enumerate(chain_residues, start=1):

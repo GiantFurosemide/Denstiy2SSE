@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -30,6 +31,7 @@ class SyntheticConfig:
     tube_radius: float
     export_mrc: bool
     export_pdb: bool
+    num_workers: int = 1
 
 
 def _random_unit_vectors(rng: np.random.Generator, n: int) -> np.ndarray:
@@ -125,36 +127,87 @@ def write_sample_npz(path: str, fields: Dict[str, Any]) -> None:
     np.savez_compressed(path, **fields)
 
 
+def _split_index(split: str) -> int:
+    return {"train": 0, "val": 1, "test": 2}.get(split, 0)
+
+
+def _sample_rng_seed(base_seed: int, split_idx: int, sample_idx: int) -> int:
+    """Deterministic seed per sample (parallel-safe, same results as sequential with this scheme)."""
+    return int(base_seed) + split_idx * 1_000_000 + int(sample_idx)
+
+
+def _write_one_sample_files(
+    split: str,
+    i: int,
+    out_dir: str,
+    fields: Dict[str, Any],
+    primitives: List[HelixPrimitive],
+    cfg: SyntheticConfig,
+) -> None:
+    base = os.path.join(out_dir, f"{split}_{i:06d}")
+    npz_path = base + ".npz"
+    meta: Dict[str, Any] = {
+        "sample_id": str(fields[S.SAMPLE_ID]),
+        "split": split,
+        "K": int(fields[S.K]),
+        "npz": npz_path,
+    }
+    if cfg.export_mrc:
+        mrc_path = base + ".mrc"
+        mrc_io.write_mrc(mrc_path, fields[S.MASK].astype(np.float32), voxel_size=(cfg.voxel_size,) * 3)
+        fields[S.MASK_MRC_PATH] = np.array(mrc_path)
+        meta["mask_mrc"] = mrc_path
+    if cfg.export_pdb:
+        blocks = [helix_builder.build_backbone_atoms(p) for p in primitives]
+        pdb_path = base + ".pdb"
+        pdb_io.helices_to_pdb_file(blocks, pdb_path)
+        fields[S.PDB_PATH] = np.array(pdb_path)
+        meta["pdb"] = pdb_path
+    write_sample_npz(npz_path, fields)
+    with open(base + ".meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+
+def _synth_worker_payload(args: Tuple[str, int, str, str, Dict[str, Any]]) -> int:
+    """
+    Top-level worker for multiprocessing (must be picklable).
+
+    Args: ``(split, sample_idx, out_dir, rng_seed_str, cfg_dict)``.
+    """
+    split, i, out_dir, rng_seed_str, cfg_dict = args
+    rng_seed = int(rng_seed_str)
+    cfg = SyntheticConfig(**cfg_dict)
+    rng = np.random.default_rng(rng_seed)
+    fields, primitives = generate_one_sample(rng, cfg, i)
+    _write_one_sample_files(split, i, out_dir, fields, primitives, cfg)
+    return i
+
+
 def generate_dataset_split(
     out_dir: str,
     cfg: SyntheticConfig,
     split: str,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    split_seed = {"train": 0, "val": 1, "test": 2}.get(split, 0)
-    rng = np.random.default_rng(cfg.seed + 1000 * split_seed)
-    for i in range(cfg.num_samples):
-        fields, primitives = generate_one_sample(rng, cfg, i)
-        # ``out_dir`` is the split directory (e.g. ``data/train``), not its parent.
-        base = os.path.join(out_dir, f"{split}_{i:06d}")
-        npz_path = base + ".npz"
-        meta: Dict[str, Any] = {
-            "sample_id": str(fields[S.SAMPLE_ID]),
-            "split": split,
-            "K": int(fields[S.K]),
-            "npz": npz_path,
-        }
-        if cfg.export_mrc:
-            mrc_path = base + ".mrc"
-            mrc_io.write_mrc(mrc_path, fields[S.MASK].astype(np.float32), voxel_size=(cfg.voxel_size,) * 3)
-            fields[S.MASK_MRC_PATH] = np.array(mrc_path)
-            meta["mask_mrc"] = mrc_path
-        if cfg.export_pdb:
-            blocks = [helix_builder.build_backbone_atoms(p) for p in primitives]
-            pdb_path = base + ".pdb"
-            pdb_io.helices_to_pdb_file(blocks, pdb_path)
-            fields[S.PDB_PATH] = np.array(pdb_path)
-            meta["pdb"] = pdb_path
-        write_sample_npz(npz_path, fields)
-        with open(base + ".meta.json", "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2)
+    split_idx = _split_index(split)
+    n = cfg.num_samples
+    workers = max(1, int(cfg.num_workers))
+
+    if workers <= 1 or n == 0:
+        for i in range(n):
+            rng = np.random.default_rng(_sample_rng_seed(cfg.seed, split_idx, i))
+            fields, primitives = generate_one_sample(rng, cfg, i)
+            _write_one_sample_files(split, i, out_dir, fields, primitives, cfg)
+        return
+
+    cfg_dict = asdict(cfg)
+    max_proc = min(workers, n)
+    tasks = []
+    for i in range(n):
+        seed = _sample_rng_seed(cfg.seed, split_idx, i)
+        tasks.append((split, i, out_dir, str(int(seed)), cfg_dict))
+
+    with ProcessPoolExecutor(max_workers=max_proc) as ex:
+        futures = [ex.submit(_synth_worker_payload, t) for t in tasks]
+        for fut in as_completed(futures):
+            fut.result()

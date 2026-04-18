@@ -4,27 +4,26 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from typing import Any, Dict, Tuple
 
 import numpy as np
 import torch
 
+from density2sse.geometry.frame import centered_box_corner_origin_angstrom, shift_centered_lab_to_mrc_corner_frame
 from density2sse.io import mrc_io
 from density2sse.model.baseline_cnn import BaselineHelixCNN
 
 
-def load_model(
-    checkpoint_path: str,
-    cfg: Dict[str, Any],
-    device: torch.device,
-) -> BaselineHelixCNN:
+def _model_from_yaml(cfg: Dict[str, Any]) -> BaselineHelixCNN:
+    """Build model from merged YAML (legacy checkpoints without ``model_config``)."""
     mcfg = cfg["model"]
     data_cfg = cfg["data"]
     max_K = int(data_cfg["K_max"])
     box = int(data_cfg["box_size"])
     vs = float(data_cfg["voxel_size"])
     box_extent = box * vs
-    model = BaselineHelixCNN(
+    return BaselineHelixCNN(
         max_K=max_K,
         box_size=box,
         in_channels=int(mcfg["in_channels"]),
@@ -32,11 +31,52 @@ def load_model(
         hidden_dim=int(mcfg["hidden_dim"]),
         box_extent_angstrom=box_extent,
     )
+
+
+def load_model(
+    checkpoint_path: str,
+    cfg: Dict[str, Any],
+    device: torch.device,
+) -> Tuple[BaselineHelixCNN, Dict[str, Any]]:
+    """
+    Load weights and return ``(model, model_config)``.
+
+    If the checkpoint contains ``model_config`` (written during training), the architecture
+    is taken from the checkpoint so inference YAML does not need to match ``data.K_max`` /
+    ``model.*`` exactly.
+    """
     ck = torch.load(checkpoint_path, map_location=device)
+    if "model_config" in ck and isinstance(ck["model_config"], dict):
+        mc = ck["model_config"]
+        model = BaselineHelixCNN(
+            max_K=int(mc["max_K"]),
+            box_size=int(mc["box_size"]),
+            in_channels=int(mc["in_channels"]),
+            base_channels=int(mc["base_channels"]),
+            hidden_dim=int(mc["hidden_dim"]),
+            box_extent_angstrom=float(mc["box_extent_angstrom"]),
+        )
+    else:
+        warnings.warn(
+            "Checkpoint has no 'model_config'; building the network from inference YAML. "
+            "Those values must match training or loading will fail. Re-train or save checkpoints "
+            "with a current density2sse version to embed architecture in the .pt file.",
+            UserWarning,
+            stacklevel=2,
+        )
+        model = _model_from_yaml(cfg)
+        mc = {
+            "max_K": int(cfg["data"]["K_max"]),
+            "box_size": int(cfg["data"]["box_size"]),
+            "in_channels": int(cfg["model"]["in_channels"]),
+            "base_channels": int(cfg["model"]["base_channels"]),
+            "hidden_dim": int(cfg["model"]["hidden_dim"]),
+            "box_extent_angstrom": float(cfg["data"]["box_size"]) * float(cfg["data"]["voxel_size"]),
+        }
     model.load_state_dict(ck["model"])
     model.to(device)
     model.eval()
-    return model
+    return model, mc
 
 
 def run_inference(
@@ -49,28 +89,55 @@ def run_inference(
     ckpt = inf["checkpoint"]
     prefix = inf.get("output_prefix", "outputs/infer/run")
 
+    model, mc = load_model(ckpt, cfg, device)
+    max_k = int(mc["max_K"])
+    if k > max_k:
+        raise ValueError(
+            f"inference.K={k} is greater than the model's max_K={max_k} (trained slot count). "
+            f"Lower inference.K or retrain with a larger data.K_max."
+        )
+
     m = mrc_io.read_mrc(path_mrc)
     mask = m.data.astype(np.float32)
     if mask.ndim != 3:
         raise ValueError(f"Expected 3D mask, got {mask.shape}")
-    exp = int(cfg["data"]["box_size"])
+    exp = int(mc["box_size"])
     if tuple(mask.shape) != (exp, exp, exp):
         raise ValueError(
-            f"Mask shape {mask.shape} must match data.box_size cubic grid ({exp},{exp},{exp}) "
-            "for the loaded checkpoint architecture."
+            f"Mask shape {mask.shape} must match the training grid ({exp},{exp},{exp}) "
+            f"from the checkpoint (not necessarily inference YAML data.box_size)."
         )
 
-    model = load_model(ckpt, cfg, device)
     tensor = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0).to(device)
     kvec = torch.tensor([k], dtype=torch.long, device=device)
     with torch.no_grad():
         pred_c, pred_d, pred_l = model(tensor, kvec)
 
+    centers = pred_c[0, :k].detach().cpu().numpy()
+    shift = shift_centered_lab_to_mrc_corner_frame(
+        m.origin_corner_angstrom_zyx,
+        (exp, exp, exp),
+        m.voxel_size,
+    )
+    centers_aligned = centers + shift.reshape(1, 3)
+
     out: Dict[str, Any] = {
         "K": k,
-        "centers": pred_c[0, :k].detach().cpu().numpy(),
+        "centers": centers_aligned,
         "directions": pred_d[0, :k].detach().cpu().numpy(),
         "lengths": pred_l[0, :k].detach().cpu().numpy(),
+    }
+
+    o_can = centered_box_corner_origin_angstrom((exp, exp, exp), m.voxel_size)
+    half_extent_zyx = tuple(0.5 * exp * float(m.voxel_size[i]) for i in range(3))
+    frame_meta = {
+        "convention": "centered_box",
+        "box_size": exp,
+        "voxel_size_angstrom_zyx": list(m.voxel_size),
+        "origin_corner_angstrom_zyx": list(m.origin_corner_angstrom_zyx),
+        "canonical_corner_angstrom_zyx": list(o_can),
+        "half_extent_angstrom_zyx": list(half_extent_zyx),
+        "shift_centered_to_mrc_corner_frame_zyx": shift.tolist(),
     }
 
     os.makedirs(os.path.dirname(prefix) or ".", exist_ok=True)
@@ -86,4 +153,7 @@ def run_inference(
             f,
             indent=2,
         )
+    if inf.get("write_frame_json", True):
+        with open(prefix + "_frame.json", "w", encoding="utf-8") as f:
+            json.dump(frame_meta, f, indent=2)
     return out

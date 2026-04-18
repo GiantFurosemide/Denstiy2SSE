@@ -13,6 +13,7 @@ data:
   K_max: 5
 
 synthetic:
+  num_workers: 4
   num_samples_train: 2000
   num_samples_val: 200
   num_samples_test: 200

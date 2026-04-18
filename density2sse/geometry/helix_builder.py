@@ -2,36 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.resources
 from typing import Tuple
 
 import numpy as np
 
 from density2sse.geometry.helix import HelixPrimitive, canonical_ca_positions_local, residue_count_from_length, unit
-
-
-def _load_template() -> np.ndarray:
-    """(n_template, 4, 3) backbone in order N, CA, C, O."""
-    pkg = importlib.resources.files("density2sse") / "data" / "helix_template.npz"
-    with importlib.resources.as_file(pkg) as path:
-        data = np.load(path)
-        return np.asarray(data["backbone"], dtype=np.float64)
-
-
-def _resample_backbone(template: np.ndarray, n_out: int) -> np.ndarray:
-    """Linearly interpolate each atom along residue index."""
-    n_in = template.shape[0]
-    if n_out == n_in:
-        return template.copy()
-    if n_out < 2:
-        raise ValueError("n_out must be >= 2")
-    idx = np.linspace(0.0, n_in - 1.0, n_out)
-    out = np.zeros((n_out, 4, 3), dtype=np.float64)
-    base = np.arange(n_in, dtype=np.float64)
-    for a in range(4):
-        for d in range(3):
-            out[:, a, d] = np.interp(idx, base, template[:, a, d])
-    return out
+from density2sse.geometry.peptide_build import build_polyalanine_alpha_helix
 
 
 def _kabsch(p: np.ndarray, q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -82,8 +58,8 @@ def build_backbone_atoms(prim: HelixPrimitive) -> np.ndarray:
     length = float(prim.length)
     n_res = residue_count_from_length(length)
     ca_target = canonical_ca_positions_local(n_res)
-    template = _load_template()
-    tmpl = _resample_backbone(template, n_res)
+    # Internal-coordinate α-helix (φ/ψ, trans ω); avoids resampling artifacts on template grids.
+    tmpl = build_polyalanine_alpha_helix(n_res)
     p_ca = tmpl[:, 1, :]
     q_ca = ca_target
     r_fit, t_fit = _kabsch(p_ca, q_ca)

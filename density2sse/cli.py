@@ -11,14 +11,10 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-import torch
-
 from density2sse import __version__
 from density2sse.config import resolve_config, save_resolved, validate_config
 from density2sse.data.synthetic_generator import SyntheticConfig, generate_dataset_split
 from density2sse.export import export_pdb
-from density2sse.infer import predictor
-from density2sse.train import trainer
 from density2sse.utils.logging_utils import setup_logging
 from density2sse.utils.seed import set_seed
 
@@ -71,6 +67,7 @@ def _cmd_generate_data(args: argparse.Namespace) -> int:
         tube_radius=float(syn.get("tube_radius", 2.5)),
         export_mrc=bool(syn.get("export_mrc", False)),
         export_pdb=bool(syn.get("export_pdb", False)),
+        num_workers=int(syn.get("num_workers", 1)),
     )
     generate_dataset_split(train_dir, sc, "train")
     sc_val = SyntheticConfig(
@@ -86,6 +83,7 @@ def _cmd_generate_data(args: argparse.Namespace) -> int:
         tube_radius=float(syn.get("tube_radius", 2.5)),
         export_mrc=bool(syn.get("export_mrc", False)),
         export_pdb=bool(syn.get("export_pdb", False)),
+        num_workers=int(syn.get("num_workers", 1)),
     )
     generate_dataset_split(val_dir, sc_val, "val")
     sc_te = SyntheticConfig(
@@ -101,6 +99,7 @@ def _cmd_generate_data(args: argparse.Namespace) -> int:
         tube_radius=float(syn.get("tube_radius", 2.5)),
         export_mrc=bool(syn.get("export_mrc", False)),
         export_pdb=bool(syn.get("export_pdb", False)),
+        num_workers=int(syn.get("num_workers", 1)),
     )
     generate_dataset_split(test_dir, sc_te, "test")
     run_dir = os.path.join(cfg["project"]["output_dir"], "generate_data", uuid.uuid4().hex[:8])
@@ -111,6 +110,10 @@ def _cmd_generate_data(args: argparse.Namespace) -> int:
 
 
 def _cmd_train(args: argparse.Namespace) -> int:
+    import torch
+
+    from density2sse.train import trainer
+
     cfg = resolve_config(args.config)
     validate_config(cfg, "train")
     set_seed(int(cfg["project"]["seed"]))
@@ -135,6 +138,10 @@ def _cmd_train(args: argparse.Namespace) -> int:
 
 
 def _cmd_infer(args: argparse.Namespace) -> int:
+    import torch
+
+    from density2sse.infer import predictor
+
     cfg = resolve_config(args.config)
     validate_config(cfg, "infer")
     set_seed(int(cfg["project"]["seed"]))
@@ -170,6 +177,17 @@ def _cmd_validate_config(args: argparse.Namespace) -> int:
 
 
 def _cmd_test(args: argparse.Namespace) -> int:
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("pytest") is None:
+            raise ImportError
+    except ImportError:
+        print(
+            "pytest is not installed. Run: pip install 'pytest>=7'  or  pip install -e '.[dev]'  or  pip install -e '.[test]'",
+            file=sys.stderr,
+        )
+        return 1
     cmd = [sys.executable, "-m", "pytest", "tests", "-q"]
     if args.extra:
         cmd.extend(args.extra)

@@ -115,3 +115,4 @@ def test_end_to_end_tiny_pipeline():
         )
         assert r3.returncode == 0, r3.stderr + r3.stdout
         assert os.path.isfile(os.path.join(tmp, "infer", "out_pred.pdb"))
+        assert os.path.isfile(os.path.join(tmp, "infer", "out_frame.json"))
