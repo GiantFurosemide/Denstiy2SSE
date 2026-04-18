@@ -1,0 +1,24 @@
+project:
+  name: density2sse
+  output_dir: outputs
+  seed: 42
+
+data:
+  train_dir: data/train
+  val_dir: data/val
+  test_dir: data/test
+  voxel_size: 1.5
+  box_size: 96
+  K_min: 2
+  K_max: 5
+
+synthetic:
+  num_samples_train: 2000
+  num_samples_val: 200
+  num_samples_test: 200
+  retry_limit: 500
+  length_min: 12.0
+  length_max: 30.0
+  tube_radius: 2.5
+  export_mrc: false
+  export_pdb: false

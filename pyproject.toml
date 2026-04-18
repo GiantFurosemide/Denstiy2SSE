@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "density2sse"
+version = "0.1.0"
+description = "Predict canonical alpha-helices from binary density masks (MRC) with a baseline 3D CNN."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "density2sse contributors" }]
+dependencies = [
+  "numpy>=1.21",
+  "scipy>=1.7",
+  "pyyaml>=6.0",
+  "mrcfile>=1.4",
+  "torch>=1.12",
+  "tqdm>=4.62",
+  "biopython>=1.79",
+  "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "rich>=12.0", "pandas>=1.3"]
+
+[project.scripts]
+density2sse = "density2sse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["density2sse*"]
+
+[tool.setuptools.package-data]
+density2sse = ["data/*.npz"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

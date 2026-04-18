@@ -1,0 +1,62 @@
+project:
+  name: density2sse
+  output_dir: outputs
+  seed: 42
+mode: train
+io:
+  input_mrc: null
+  output_dir: outputs/example
+  save_debug: true
+data:
+  dataset_type: synthetic
+  train_dir: data/train
+  val_dir: data/val
+  test_dir: data/test
+  voxel_size: 1.5
+  box_size: 96
+  threshold: 0.2
+  K_min: 2
+  K_max: 5
+synthetic:
+  enabled: true
+  num_samples_train: 2000
+  num_samples_val: 200
+  num_samples_test: 200
+  retry_limit: 500
+  renderer: cylinder
+  tube_radius: 2.5
+  length_min: 12.0
+  length_max: 30.0
+  export_mrc: false
+  export_pdb: false
+model:
+  name: baseline_cnn
+  in_channels: 1
+  base_channels: 16
+  hidden_dim: 256
+training:
+  batch_size: 4
+  num_epochs: 2
+  learning_rate: 0.001
+  weight_decay: 1.0e-05
+  num_workers: 0
+  device: cpu
+  tiny_overfit: false
+  tiny_num_samples: 8
+loss:
+  w_pos: 1.0
+  w_dir: 1.0
+  w_len: 1.0
+inference:
+  K: 3
+  checkpoint: outputs/train/example/checkpoints/best.pt
+  export_pdb: true
+  input_mrc: null
+  output_prefix: outputs/infer/run
+export:
+  input_npz: null
+  output_pdb: outputs/export/model.pdb
+run:
+  stages:
+  - generate-data
+  - train

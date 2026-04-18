@@ -1,0 +1,6 @@
+project:
+  seed: 42
+
+export:
+  input_npz: outputs/infer/example_run_pred.npz
+  output_pdb: outputs/export/example.pdb

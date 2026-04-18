@@ -1,0 +1,22 @@
+project:
+  seed: 42
+
+data:
+  voxel_size: 1.5
+  box_size: 96
+  K_max: 5
+
+model:
+  in_channels: 1
+  base_channels: 16
+  hidden_dim: 256
+
+training:
+  device: cpu
+
+inference:
+  K: 3
+  checkpoint: outputs/train/latest_placeholder/checkpoints/best.pt
+  export_pdb: true
+  input_mrc: examples/example_mask.mrc
+  output_prefix: outputs/infer/example_run
