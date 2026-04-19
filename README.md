@@ -108,7 +108,7 @@ Model outputs are in the **centered** frame; when you run inference, **centers i
 - `**outputs/train/<run_id>/`**
   - `config.resolved.yaml`: merged configuration.
   - `checkpoints/best.pt`, `last.pt`: PyTorch weights, epoch, and **`model_config`** (architecture) for inference.
-  - Optional per-epoch checkpoints: enable `training.save_every_epoch`; files default to `checkpoints/epoch_{epoch:04d}.pt` (pattern configurable via `training.checkpoint_pattern`). Use `training.keep_last_k_epoch_checkpoints` to retain only the newest `k` `epoch_*.pt` files (0 = keep all).
+  - Per-epoch checkpoints: by default `training.save_every_epoch` is **true** — each epoch writes `checkpoints/epoch_{epoch:04d}.pt` (same payload as `last.pt`). Set `training.save_every_epoch: false` to skip these files and only keep `last.pt` / `best.pt`. Pattern: `training.checkpoint_pattern`. Pruning: `training.keep_last_k_epoch_checkpoints` (0 = keep all `epoch_*.pt`).
   - `metrics.csv`: epoch losses.
 - **Inference**: `*_pred.npz` / `*_pred.json` contain `K`, `centers`, `directions`, `lengths` (centers already aligned to the input MRC header frame when applicable).
 - **PDB**: one chain per helix, ALA residues, backbone atoms N, CA, C, O.

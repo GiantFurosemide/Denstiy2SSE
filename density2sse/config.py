@@ -53,7 +53,7 @@ DEFAULTS: Dict[str, Any] = {
         "device": "cpu",
         "tiny_overfit": False,
         "tiny_num_samples": 8,
-        "save_every_epoch": False,
+        "save_every_epoch": True,
         "checkpoint_pattern": "epoch_{epoch:04d}.pt",
         "keep_last_k_epoch_checkpoints": 0,
     },

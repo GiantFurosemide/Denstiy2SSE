@@ -228,7 +228,7 @@ def run_training(
             ),
             os.path.join(ckpt_dir, "last.pt"),
         )
-        if tcfg.get("save_every_epoch"):
+        if tcfg.get("save_every_epoch", True):
             pattern = str(tcfg.get("checkpoint_pattern", "epoch_{epoch:04d}.pt"))
             ep_name = pattern.format(epoch=epoch)
             torch.save(

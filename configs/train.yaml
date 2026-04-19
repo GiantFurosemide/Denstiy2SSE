@@ -25,6 +25,9 @@ training:
   num_workers: 0
   device: cpu
   tiny_overfit: false
+  save_every_epoch: true
+  checkpoint_pattern: "epoch_{epoch:04d}.pt"
+  keep_last_k_epoch_checkpoints: 0
 
 loss:
   w_pos: 1.0
