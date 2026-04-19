@@ -1,0 +1,39 @@
+# DETR-style decoder (same data; switch model only).
+project:
+  output_dir: outputs
+  seed: 42
+
+data:
+  train_dir: data/train
+  val_dir: data/val
+  test_dir: data/test
+  voxel_size: 1.5
+  box_size: 96
+  K_min: 2
+  K_max: 5
+
+model:
+  name: detr3d
+  in_channels: 1
+  base_channels: 16
+  hidden_dim: 256
+  d_model: 256
+  nhead: 8
+  num_decoder_layers: 2
+  dim_feedforward: 512
+
+training:
+  batch_size: 4
+  num_epochs: 2
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  num_workers: 0
+  device: cpu
+
+loss:
+  w_pos: 1.0
+  w_dir: 1.0
+  w_len: 1.0
+  w_render: 0.0
+  w_clash: 0.0
+  w_boundary: 0.0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from density2sse import __version__
 from density2sse.config import resolve_config, save_resolved, validate_config
+from density2sse.model import registry as model_registry
 from density2sse.data.synthetic_generator import SyntheticConfig, generate_dataset_split
 from density2sse.export import export_pdb
 from density2sse.utils.logging_utils import setup_logging
@@ -128,11 +130,17 @@ def _cmd_train(args: argparse.Namespace) -> int:
         # expect user generated tiny data; optionally subsample is not implemented
         train_dir = train_dir
 
-    run_id = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    model_name = str(cfg["model"].get("name", "baseline_cnn"))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", model_name).strip("_") or "model"
+    run_id = time.strftime("%Y%m%d_%H%M%S") + "_" + safe + "_" + uuid.uuid4().hex[:6]
     run_dir = os.path.join(cfg["project"]["output_dir"], "train", run_id)
     os.makedirs(run_dir, exist_ok=True)
-    save_resolved(cfg, os.path.join(run_dir, "config.resolved.yaml"))
-    trainer.run_training(cfg, train_dir, val_dir, run_dir, device)
+    resolved_path = os.path.join(run_dir, "config.resolved.yaml")
+    save_resolved(cfg, resolved_path)
+    shutil.copy(resolved_path, os.path.join(run_dir, "config.yaml"))
+    with open(os.path.join(run_dir, "model.txt"), "w", encoding="utf-8") as f:
+        f.write(model_registry.describe_model(cfg))
+    trainer.run_training(cfg, train_dir, val_dir, run_dir, device, run_id)
     print(f"Training finished. Run directory: {run_dir}")
     return 0
 

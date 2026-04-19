@@ -12,50 +12,29 @@ import torch
 
 from density2sse.geometry.frame import centered_box_corner_origin_angstrom, shift_centered_lab_to_mrc_corner_frame
 from density2sse.io import mrc_io
-from density2sse.model.baseline_cnn import BaselineHelixCNN
+from density2sse.model import registry as model_registry
 
 
-def _model_from_yaml(cfg: Dict[str, Any]) -> BaselineHelixCNN:
+def _model_from_yaml(cfg: Dict[str, Any]) -> torch.nn.Module:
     """Build model from merged YAML (legacy checkpoints without ``model_config``)."""
-    mcfg = cfg["model"]
-    data_cfg = cfg["data"]
-    max_K = int(data_cfg["K_max"])
-    box = int(data_cfg["box_size"])
-    vs = float(data_cfg["voxel_size"])
-    box_extent = box * vs
-    return BaselineHelixCNN(
-        max_K=max_K,
-        box_size=box,
-        in_channels=int(mcfg["in_channels"]),
-        base_channels=int(mcfg["base_channels"]),
-        hidden_dim=int(mcfg["hidden_dim"]),
-        box_extent_angstrom=box_extent,
-    )
+    return model_registry.build_model(cfg)
 
 
 def load_model(
     checkpoint_path: str,
     cfg: Dict[str, Any],
     device: torch.device,
-) -> Tuple[BaselineHelixCNN, Dict[str, Any]]:
+) -> Tuple[torch.nn.Module, Dict[str, Any]]:
     """
     Load weights and return ``(model, model_config)``.
 
     If the checkpoint contains ``model_config`` (written during training), the architecture
-    is taken from the checkpoint so inference YAML does not need to match ``data.K_max`` /
-    ``model.*`` exactly.
+    is taken from the checkpoint so inference YAML does not need to match exactly.
     """
     ck = torch.load(checkpoint_path, map_location=device)
     if "model_config" in ck and isinstance(ck["model_config"], dict):
         mc = ck["model_config"]
-        model = BaselineHelixCNN(
-            max_K=int(mc["max_K"]),
-            box_size=int(mc["box_size"]),
-            in_channels=int(mc["in_channels"]),
-            base_channels=int(mc["base_channels"]),
-            hidden_dim=int(mc["hidden_dim"]),
-            box_extent_angstrom=float(mc["box_extent_angstrom"]),
-        )
+        model = model_registry.build_model_from_checkpoint_config(mc)
     else:
         warnings.warn(
             "Checkpoint has no 'model_config'; building the network from inference YAML. "
@@ -65,14 +44,9 @@ def load_model(
             stacklevel=2,
         )
         model = _model_from_yaml(cfg)
-        mc = {
-            "max_K": int(cfg["data"]["K_max"]),
-            "box_size": int(cfg["data"]["box_size"]),
-            "in_channels": int(cfg["model"]["in_channels"]),
-            "base_channels": int(cfg["model"]["base_channels"]),
-            "hidden_dim": int(cfg["model"]["hidden_dim"]),
-            "box_extent_angstrom": float(cfg["data"]["box_size"]) * float(cfg["data"]["voxel_size"]),
-        }
+        data_cfg = cfg["data"]
+        mcfg = cfg["model"]
+        mc = model_registry.model_config_dict_for_checkpoint(cfg)
     model.load_state_dict(ck["model"])
     model.to(device)
     model.eval()

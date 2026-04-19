@@ -43,6 +43,10 @@ DEFAULTS: Dict[str, Any] = {
         "in_channels": 1,
         "base_channels": 16,
         "hidden_dim": 256,
+        "d_model": 256,
+        "nhead": 8,
+        "num_decoder_layers": 2,
+        "dim_feedforward": 512,
     },
     "training": {
         "batch_size": 8,
@@ -56,8 +60,16 @@ DEFAULTS: Dict[str, Any] = {
         "save_every_epoch": True,
         "checkpoint_pattern": "epoch_{epoch:04d}.pt",
         "keep_last_k_epoch_checkpoints": 0,
+        "metrics_train_max_batches": 8,
     },
-    "loss": {"w_pos": 1.0, "w_dir": 1.0, "w_len": 1.0},
+    "loss": {
+        "w_pos": 1.0,
+        "w_dir": 1.0,
+        "w_len": 1.0,
+        "w_render": 0.0,
+        "w_clash": 0.0,
+        "w_boundary": 0.0,
+    },
     "inference": {
         "K": 3,
         "checkpoint": "outputs/train/example/checkpoints/best.pt",

@@ -91,8 +91,8 @@ pytest tests/ -q
 ## Inference guide
 
 - **Mask shape** must be a cube matching **training** grid size (same `box_size` as the checkpoint).
-- **`inference.K`** is how many helices you ask for; it must be **≤ `data.K_max` from training** (the model has that many output slots).
-- Checkpoints saved by current training runs include embedded **`model_config`**, so the network shape is loaded from **`best.pt` / `last.pt`** and your inference YAML no longer has to match `data.K_max` / `model.*` exactly. Older checkpoints without `model_config` still require YAML to match training.
+- `**inference.K`** is how many helices you ask for; it must be **≤ `data.K_max` from training** (the model has that many output slots).
+- Checkpoints saved by current training runs include embedded `**model_config`**, so the network shape is loaded from `**best.pt` / `last.pt**` and your inference YAML no longer has to match `data.K_max` / `model.*` exactly. Older checkpoints without `model_config` still require YAML to match training.
 - Set `inference.input_mrc`, `inference.checkpoint`, and `inference.output_prefix`.
 - Optional `inference.write_frame_json` (default `true`): writes `<prefix>_frame.json` describing the MRC corner origin and the shift applied so PDB coordinates match the map header in viewers.
 - Outputs: `<prefix>_pred.npz`, `<prefix>_pred.json`, optional `<prefix>_frame.json`, and `<prefix>_pred.pdb` if `inference.export_pdb` is true.
@@ -103,13 +103,24 @@ Training and inference use a **box-centered** lab frame in ångströms: voxel ce
 
 Model outputs are in the **centered** frame; when you run inference, **centers in NPZ/JSON/PDB are shifted** by `origin_corner − canonical_corner` so they align with the **input map’s** `origin` (Z,Y,X order). If your map was written with `write_mrc(..., convention="centered")` (default), no net shift is needed when the box matches training.
 
+## Multi-model experiments (YAML-only)
+
+- Set `**model.name`** to a registered architecture: `baseline_cnn` (default) or `detr3d` (CNN + Transformer decoder). Constructor kwargs come from `model.*` and `data.*` (see `density2sse/model/registry.py`).
+- `**loss**`: optional `w_render` (soft Gaussian vs downsampled mask), `w_clash` (axis proximity), `w_boundary` (endpoint mask support). Defaults are `0` (core Hungarian loss only).
+- **Run ID** includes the model name (`outputs/train/<timestamp>_<model>_<id>/`) for parallel comparisons.
+- Example configs: `[configs/train_baseline.yaml](configs/train_baseline.yaml)`, `[configs/train_render.yaml](configs/train_render.yaml)`, `[configs/train_detr3d.yaml](configs/train_detr3d.yaml)`.
+- **Notebook**: `[notebooks/benchmark.ipynb](notebooks/benchmark.ipynb)` loads all `outputs/train/*/metrics.csv` with pandas (install `pip install -e ".[dev]"` for pandas).
+- **CLI helper**: `python tools/compare_runs.py outputs/train`
+
 ## Output file meanings
 
 - `**outputs/train/<run_id>/`**
-  - `config.resolved.yaml`: merged configuration.
-  - `checkpoints/best.pt`, `last.pt`: PyTorch weights, epoch, and **`model_config`** (architecture) for inference.
+  - `config.resolved.yaml` and `**config.yaml`**: merged configuration (duplicate filenames for notebook/tools).
+  - `**model.txt**`: short architecture summary.
+  - `checkpoints/best.pt`, `last.pt`: PyTorch weights, epoch, and `**model_config**` (includes `model_name` for registry reload) for inference.
   - Per-epoch checkpoints: by default `training.save_every_epoch` is **true** — each epoch writes `checkpoints/epoch_{epoch:04d}.pt` (same payload as `last.pt`). Set `training.save_every_epoch: false` to skip these files and only keep `last.pt` / `best.pt`. Pattern: `training.checkpoint_pattern`. Pruning: `training.keep_last_k_epoch_checkpoints` (0 = keep all `epoch_*.pt`).
-  - `metrics.csv`: epoch losses.
+  - `**metrics.csv`**: benchmark rows with columns `model_name`, `run_id`, `epoch`, `split` (`train` / `val`), `center_error`, `angle_error`, `length_error`, `coverage_ratio`, `clash_voxels`, `loss_total`. Older runs may have the legacy `epoch,train_loss,val_loss` format only.
+  - `**example_0_overlay.png**`, `**example_1_overlay.png**`: central Z-slice of mask vs GT vs predicted helix tubes (when a validation set exists).
 - **Inference**: `*_pred.npz` / `*_pred.json` contain `K`, `centers`, `directions`, `lengths` (centers already aligned to the input MRC header frame when applicable).
 - **PDB**: one chain per helix, ALA residues, backbone atoms N, CA, C, O.
 
@@ -133,8 +144,8 @@ Includes unit tests (helix geometry, renderer, config, matching, CLI) and an **e
 
 ### Troubleshooting
 
-- **NumPy 2.x + PyTorch errors** (`_ARRAY_API`, “compiled using NumPy 1.x”): this package pins **`numpy<2`** in `pyproject.toml` for ABI compatibility. In an existing env, run: `pip install 'numpy>=1.21,<2'` then reinstall torch if needed.
-- **`No module named pytest`**: install pytest as shown above.
+- **NumPy 2.x + PyTorch errors** (`_ARRAY_API`, “compiled using NumPy 1.x”): this package pins `**numpy<2`** in `pyproject.toml` for ABI compatibility. In an existing env, run: `pip install 'numpy>=1.21,<2'` then reinstall torch if needed.
+- `**No module named pytest**`: install pytest as shown above.
 
 ## Known limitations
 
@@ -142,7 +153,7 @@ Includes unit tests (helix geometry, renderer, config, matching, CLI) and an **e
 - **Ambiguity**: helix direction sign is handled with a sign-invariant cosine loss.
 - **Fixed grid**: inference MRC must match training box size and voxel spacing assumed in the config.
 - **ChimeraX molmap**: not wired in; use `renderer: cylinder` for fully pip-based workflows.
-- **Helix geometry**: backbone coordinates come from **Biopython** PIC/IC (`read_PIC_seq`, then φ/ψ/ω set like [`examples/Biopython_helix.py`](examples/Biopython_helix.py), default −57°/−47°/180°), then `internal_to_atom_coordinates()`, then a rigid fit to the canonical CA trace (`density2sse/geometry/peptide_build.py`). Requires **Biopython ≥ 1.85** (provides `read_PIC_seq`).
+- **Helix geometry**: backbone coordinates come from **Biopython** PIC/IC (`read_PIC_seq`, then φ/ψ/ω set like `[examples/Biopython_helix.py](examples/Biopython_helix.py)`, default −57°/−47°/180°), then `internal_to_atom_coordinates()`, then a rigid fit to the canonical CA trace (`density2sse/geometry/peptide_build.py`). Requires **Biopython ≥ 1.85** (provides `read_PIC_seq`).
 
 ---
 
