@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from density2sse import __version__
 from density2sse.config import resolve_config, save_resolved, validate_config
+from density2sse.data.mrc_to_npz import PrepareDataConfig, convert_global_annotations_to_npz
 from density2sse.model import registry as model_registry
 from density2sse.data.synthetic_generator import SyntheticConfig, generate_dataset_split
 from density2sse.export import export_pdb
@@ -131,6 +132,35 @@ def _cmd_generate_data(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_prepare_data(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config)
+    validate_config(cfg, "prepare-data")
+    pd = cfg["prepare_data"]
+    data = cfg["data"]
+    out_dirs = {
+        "train": _resolve_path(data["train_dir"]),
+        "val": _resolve_path(data["val_dir"]),
+        "test": _resolve_path(data["test_dir"]),
+    }
+    pcfg = PrepareDataConfig(
+        annotation_path=_resolve_path(pd["annotation_path"]),
+        mrc_root=_resolve_path(pd.get("mrc_root", ".")),
+        sample_id_key=str(pd.get("sample_id_key", "sample_id")),
+        mrc_path_key=str(pd.get("mrc_path_key", "mrc_path")),
+        split_key=str(pd.get("split_key", "split")),
+        default_split=str(pd.get("default_split", "train")),
+        strict=bool(pd.get("strict", True)),
+        output_meta_json=bool(pd.get("output_meta_json", True)),
+        source_type=str(pd.get("source_type", "real_data")),
+    )
+    counts = convert_global_annotations_to_npz(pcfg, out_dirs)
+    run_dir = os.path.join(cfg["project"]["output_dir"], "prepare_data", uuid.uuid4().hex[:8])
+    os.makedirs(run_dir, exist_ok=True)
+    save_resolved(cfg, os.path.join(run_dir, "config.resolved.yaml"))
+    print(f"Prepared NPZ data: train={counts['train']} val={counts['val']} test={counts['test']}")
+    return 0
+
+
 def _cmd_train(args: argparse.Namespace) -> int:
     import torch
 
@@ -233,6 +263,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             rc = _cmd_generate_data(argparse.Namespace(config=cfg_path))
             if rc != 0:
                 return rc
+        elif st == "prepare-data":
+            rc = _cmd_prepare_data(argparse.Namespace(config=cfg_path))
+            if rc != 0:
+                return rc
         elif st == "train":
             rc = _cmd_train(argparse.Namespace(config=cfg_path))
             if rc != 0:
@@ -258,6 +292,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_g = sub.add_parser("generate-data", help="Generate synthetic NPZ datasets")
     p_g.add_argument("-i", "--config", required=True, help="YAML config")
     p_g.set_defaults(func=_cmd_generate_data)
+
+    p_pd = sub.add_parser("prepare-data", help="Convert MRC + global labels into NPZ dataset")
+    p_pd.add_argument("-i", "--config", required=True, help="YAML config")
+    p_pd.set_defaults(func=_cmd_prepare_data)
 
     p_t = sub.add_parser("train", help="Train baseline model")
     p_t.add_argument("-i", "--config", required=True, help="YAML config")

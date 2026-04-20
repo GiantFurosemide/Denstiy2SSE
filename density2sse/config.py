@@ -38,6 +38,17 @@ DEFAULTS: Dict[str, Any] = {
         "export_pdb": False,
         "num_workers": 1,
     },
+    "prepare_data": {
+        "annotation_path": None,
+        "mrc_root": ".",
+        "sample_id_key": "sample_id",
+        "mrc_path_key": "mrc_path",
+        "split_key": "split",
+        "default_split": "train",
+        "strict": True,
+        "output_meta_json": True,
+        "source_type": "real_data",
+    },
     "model": {
         "name": "baseline_cnn",
         "in_channels": 1,
@@ -72,6 +83,13 @@ DEFAULTS: Dict[str, Any] = {
         "metrics_target_seconds": 0.0,
         "adaptive_metrics_schedule": False,
         "final_exact_eval": True,
+        "resume": {
+            "enabled": False,
+            "checkpoint": None,
+            "mode": "weights_only",
+            "reset_lr": False,
+            "strict_load": True,
+        },
         "viz_enabled": True,
         "viz_every_n_epochs": 1,
         "viz_n_examples": 2,
@@ -130,10 +148,17 @@ def validate_config(cfg: Dict[str, Any], purpose: str) -> None:
         for k in ("synthetic", "data"):
             if k not in cfg:
                 raise ValueError(f"Missing section {k}")
+    elif purpose == "prepare-data":
+        pd = cfg.get("prepare_data", {})
+        if not pd.get("annotation_path"):
+            raise ValueError("prepare_data.annotation_path is required for prepare-data")
     elif purpose == "train":
         for k in ("training", "model", "data", "loss"):
             if k not in cfg:
                 raise ValueError(f"Missing section {k}")
+        resume = cfg["training"].get("resume", {})
+        if resume.get("enabled") and not resume.get("checkpoint"):
+            raise ValueError("training.resume.checkpoint is required when training.resume.enabled is true")
         if cfg["training"].get("tiny_overfit"):
             pass
     elif purpose == "infer":

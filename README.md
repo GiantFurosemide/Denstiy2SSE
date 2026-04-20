@@ -39,13 +39,16 @@ cd my_projects
 # 2) Generate synthetic NPZ datasets (edit configs/generate_data.yaml first)
 density2sse generate-data -i configs/generate_data.yaml
 
-# 3) Train (edit configs/train.yaml)
+# 3) (Alternative) Convert real MRC + global labels to NPZ
+# density2sse prepare-data -i configs/prepare_data.yaml
+
+# 4) Train (edit configs/train.yaml)
 density2sse train -i configs/train.yaml
 
-# 4) Inference — set inference.input_mrc and inference.checkpoint in configs/infer.yaml
+# 5) Inference — set inference.input_mrc and inference.checkpoint in configs/infer.yaml
 density2sse infer -i configs/infer.yaml
 
-# 5) Export NPZ → PDB only
+# 6) Export NPZ → PDB only
 density2sse export -i configs/export.yaml
 ```
 
@@ -70,6 +73,7 @@ pytest tests/ -q
 | ------------------------------------- | -------------------------------------------------------------------------------------- |
 | `density2sse init -o DIR`             | Create `configs/`, `data/`, `outputs/`, `logs/` and copy example YAMLs when available. |
 | `density2sse generate-data -i YAML`   | Synthetic train/val/test `.npz` under `data/{train,val,test}/`.                        |
+| `density2sse prepare-data -i YAML`    | Convert MRC masks + one global JSON/CSV annotation table into NPZ train/val/test data. |
 | `density2sse train -i YAML`           | Train baseline; writes `outputs/train/<run_id>/`.                                      |
 | `density2sse infer -i YAML`           | Inference on one MRC; writes `*_pred.npz`, `*_pred.json`, optional PDB.                |
 | `density2sse export -i YAML`          | Convert prediction NPZ to PDB.                                                         |
@@ -82,7 +86,7 @@ pytest tests/ -q
 
 - **All runtime parameters are YAML-driven.** Defaults live in `density2sse/config.py` and are merged with your file.
 - Every training/inference run should use a **resolved snapshot** (`config.resolved.yaml`) under the run directory where applicable.
-- Important groups: `project`, `data`, `synthetic`, `model`, `training`, `loss`, `inference`, `export`, `run`.
+- Important groups: `project`, `data`, `synthetic`, `prepare_data`, `model`, `training`, `loss`, `inference`, `export`, `run`.
 - New training throttling knobs are backward-compatible (old YAMLs still run): `training.metrics_every_n_epochs`, `training.val_metrics_max_batches`, `training.metrics_compute_coverage`, `training.metrics_compute_clash`, `training.metrics_log_every_n_batches`, `training.viz_enabled`, `training.viz_every_n_epochs`, `training.viz_n_examples`.
 - Backend/perf knobs for exact metrics: `training.metrics_kernel_impl` (`legacy`/`optimized`), `training.metrics_backend` (`auto`/`numpy`/`torch`), `training.metrics_profile_components`, `training.metrics_target_seconds`, `training.adaptive_metrics_schedule`, `training.final_exact_eval`.
 
@@ -91,6 +95,25 @@ pytest tests/ -q
 - Edit `configs/generate_data.yaml` (or a copy): `data.box_size`, `data.voxel_size`, `data.K_min` / `K_max`, sample counts under `synthetic`, and optional `synthetic.num_workers` (parallel processes; default `1`).
 - Outputs: `data/train/*.npz` (and val/test). Optional `.mrc` / `.pdb` per sample if `synthetic.export_mrc` / `export_pdb` are `true`.
 - NPZ fields include at least: `mask`, `K`, `centers`, `directions`, `lengths`, `box_size_angstrom`, `voxel_size_angstrom`, `source_type`, `sample_id`.
+
+## Real-data preparation guide (MRC -> NPZ)
+
+- Use one global annotation table (`JSON` or `CSV`) with records for all samples.
+- Required record content per sample:
+  - `sample_id`
+  - `K`
+  - `centers` (shape `(K,3)`)
+  - `directions` (shape `(K,3)`)
+  - `lengths` (shape `(K,)`)
+  - optional `mrc_path` (relative to `prepare_data.mrc_root` if not absolute)
+  - optional `split` (`train` / `val` / `test`; fallback to `prepare_data.default_split`)
+- Run conversion:
+
+```bash
+density2sse prepare-data -i configs/prepare_data.yaml
+```
+
+- The converter writes NPZ samples under `data.train_dir` / `data.val_dir` / `data.test_dir` and optional `*.meta.json` sidecars.
 
 ## Training guide
 
@@ -112,6 +135,20 @@ pytest tests/ -q
   - `training.adaptive_metrics_schedule: true` + `training.metrics_target_seconds` to auto-control metric cadence
   - keep `training.final_exact_eval: true` so final benchmark semantics stay complete
 - **Tiny overfit**: use very small `synthetic.num_samples_*`, `training.num_epochs: 1`, and a small `data.box_size` (e.g. 32) to sanity-check the pipeline (`configs/run.yaml` is a minimal example).
+
+### Resume from checkpoint
+
+- Resume controls live under `training.resume`:
+  - `enabled: true`
+  - `checkpoint: path/to/last.pt`
+  - `mode: weights_only` or `full_resume`
+- Mode behavior:
+  - `weights_only`: load model weights only; training restarts from epoch 1.
+  - `full_resume`: load model + optimizer + epoch + best validation loss and continue from `last_epoch + 1`.
+- Optional:
+  - `training.resume.strict_load` (default `true`) for state-dict strictness.
+  - `training.resume.reset_lr` (full resume only) to force YAML learning rate after optimizer restore.
+- Older checkpoints without optimizer state are still loadable; full resume will continue without restored optimizer internals.
 
 Recommended Slurm profile snippet:
 

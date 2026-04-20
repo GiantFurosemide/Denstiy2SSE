@@ -1,0 +1,36 @@
+project:
+  output_dir: outputs
+  seed: 42
+
+data:
+  train_dir: data/train
+  val_dir: data/val
+  test_dir: data/test
+  voxel_size: 1.5
+  box_size: 96
+  K_min: 2
+  K_max: 5
+
+model:
+  name: baseline_cnn
+  in_channels: 1
+  base_channels: 16
+  hidden_dim: 256
+
+training:
+  batch_size: 4
+  num_epochs: 20
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  num_workers: 0
+  device: auto
+  resume:
+    enabled: true
+    checkpoint: outputs/train/your_run/checkpoints/last.pt
+    mode: weights_only
+    strict_load: true
+
+loss:
+  w_pos: 1.0
+  w_dir: 1.0
+  w_len: 1.0

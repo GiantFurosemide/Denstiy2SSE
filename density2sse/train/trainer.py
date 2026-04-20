@@ -60,6 +60,8 @@ def _checkpoint_payload(
     model_state: Dict[str, Any],
     epoch: int,
     resolved_cfg: Dict[str, Any],
+    optimizer_state: Optional[Dict[str, Any]] = None,
+    best_val: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Bundle weights plus architecture hyperparameters for robust inference loading."""
     mc = model_registry.model_config_dict_for_checkpoint(resolved_cfg)
@@ -67,6 +69,8 @@ def _checkpoint_payload(
         "model": model_state,
         "epoch": epoch,
         "model_config": mc,
+        "optimizer": optimizer_state,
+        "best_val": best_val,
     }
 
 
@@ -75,6 +79,76 @@ def _state_dict_for_saving(model: nn.Module) -> Dict[str, Any]:
     if isinstance(model, nn.DataParallel):
         return model.module.state_dict()
     return model.state_dict()
+
+
+def _model_for_loading(model: nn.Module) -> nn.Module:
+    if isinstance(model, nn.DataParallel):
+        return model.module
+    return model
+
+
+def _load_model_state(model: nn.Module, state: Dict[str, Any], strict: bool) -> None:
+    target = _model_for_loading(model)
+    try:
+        target.load_state_dict(state, strict=strict)
+        return
+    except RuntimeError:
+        # Compatibility bridge for module.-prefixed checkpoints.
+        if any(k.startswith("module.") for k in state.keys()):
+            stripped = {k[len("module.") :]: v for k, v in state.items()}
+            target.load_state_dict(stripped, strict=strict)
+            return
+        prefixed = {"module." + k: v for k, v in state.items()}
+        target.load_state_dict(prefixed, strict=strict)
+
+
+def _apply_resume(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    resolved_cfg: Dict[str, Any],
+) -> tuple[int, float]:
+    """
+    Returns (start_epoch, best_val).
+    """
+    resume = resolved_cfg.get("training", {}).get("resume", {})
+    if not bool(resume.get("enabled", False)):
+        return 1, float("inf")
+    ckpt_path = str(resume.get("checkpoint") or "").strip()
+    if not ckpt_path:
+        raise ValueError("training.resume.enabled=true requires training.resume.checkpoint")
+    mode = str(resume.get("mode", "weights_only")).strip().lower()
+    strict_load = bool(resume.get("strict_load", True))
+    reset_lr = bool(resume.get("reset_lr", False))
+    if mode not in {"weights_only", "full_resume"}:
+        raise ValueError("training.resume.mode must be 'weights_only' or 'full_resume'")
+    ckpt = torch.load(ckpt_path, map_location=device)
+    if "model" not in ckpt:
+        raise ValueError(f"Checkpoint missing 'model': {ckpt_path}")
+    _load_model_state(model, ckpt["model"], strict=strict_load)
+    if mode == "weights_only":
+        LOG.info("Resume mode=weights_only loaded model from %s; start from epoch 1", ckpt_path)
+        return 1, float("inf")
+
+    # full_resume
+    start_epoch = int(ckpt.get("epoch", 0)) + 1
+    best_val = float(ckpt.get("best_val", float("inf")))
+    opt_state = ckpt.get("optimizer", None)
+    if opt_state is not None:
+        optimizer.load_state_dict(opt_state)
+        if reset_lr:
+            tcfg = resolved_cfg["training"]
+            target_lr = float(tcfg["learning_rate"])
+            for group in optimizer.param_groups:
+                group["lr"] = target_lr
+    LOG.info(
+        "Resume mode=full_resume loaded %s; start_epoch=%d best_val=%.6f optimizer_restored=%s",
+        ckpt_path,
+        start_epoch,
+        best_val,
+        opt_state is not None,
+    )
+    return start_epoch, best_val
 
 
 def train_epoch(
@@ -173,6 +247,7 @@ def run_training(
         lr=float(tcfg["learning_rate"]),
         weight_decay=float(tcfg["weight_decay"]),
     )
+    start_epoch, best_val = _apply_resume(model, opt, device, resolved_cfg)
 
     ckpt_dir = os.path.join(run_dir, "checkpoints")
     plot_dir = os.path.join(run_dir, "plots")
@@ -199,9 +274,10 @@ def run_training(
     final_exact_eval = bool(tcfg.get("final_exact_eval", True))
     dynamic_metrics_every = metrics_every_n_epochs
 
-    best_val = float("inf")
     epochs = int(tcfg["num_epochs"])
-    for epoch in range(1, epochs + 1):
+    if start_epoch > epochs:
+        LOG.warning("Resume start_epoch=%d is greater than num_epochs=%d; no training iterations will run.", start_epoch, epochs)
+    for epoch in range(start_epoch, epochs + 1):
         epoch_t0 = time.perf_counter()
         do_epoch_metrics = (epoch % dynamic_metrics_every) == 0
         LOG.info("epoch %s/%s start", epoch, epochs)
@@ -316,7 +392,13 @@ def run_training(
                 best_val = vm["loss_total"]
                 t0 = time.perf_counter()
                 torch.save(
-                    _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
+                    _checkpoint_payload(
+                        _state_dict_for_saving(model),
+                        epoch,
+                        resolved_cfg,
+                        optimizer_state=opt.state_dict(),
+                        best_val=best_val,
+                    ),
                     os.path.join(ckpt_dir, "best.pt"),
                 )
                 LOG.info("epoch %s stage=save_best done in %.2fs", epoch, time.perf_counter() - t0)
@@ -355,7 +437,13 @@ def run_training(
 
         t0 = time.perf_counter()
         torch.save(
-            _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
+            _checkpoint_payload(
+                _state_dict_for_saving(model),
+                epoch,
+                resolved_cfg,
+                optimizer_state=opt.state_dict(),
+                best_val=best_val,
+            ),
             os.path.join(ckpt_dir, "last.pt"),
         )
         LOG.info("epoch %s stage=save_last done in %.2fs", epoch, time.perf_counter() - t0)
@@ -364,7 +452,13 @@ def run_training(
             ep_name = pattern.format(epoch=epoch)
             t0 = time.perf_counter()
             torch.save(
-                _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
+                _checkpoint_payload(
+                    _state_dict_for_saving(model),
+                    epoch,
+                    resolved_cfg,
+                    optimizer_state=opt.state_dict(),
+                    best_val=best_val,
+                ),
                 os.path.join(ckpt_dir, ep_name),
             )
             keep_k = int(tcfg.get("keep_last_k_epoch_checkpoints", 0))
