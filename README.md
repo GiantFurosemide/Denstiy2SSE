@@ -83,6 +83,8 @@ pytest tests/ -q
 - **All runtime parameters are YAML-driven.** Defaults live in `density2sse/config.py` and are merged with your file.
 - Every training/inference run should use a **resolved snapshot** (`config.resolved.yaml`) under the run directory where applicable.
 - Important groups: `project`, `data`, `synthetic`, `model`, `training`, `loss`, `inference`, `export`, `run`.
+- New training throttling knobs are backward-compatible (old YAMLs still run): `training.metrics_every_n_epochs`, `training.val_metrics_max_batches`, `training.metrics_compute_coverage`, `training.metrics_compute_clash`, `training.metrics_log_every_n_batches`, `training.viz_enabled`, `training.viz_every_n_epochs`, `training.viz_n_examples`.
+- Backend/perf knobs for exact metrics: `training.metrics_kernel_impl` (`legacy`/`optimized`), `training.metrics_backend` (`auto`/`numpy`/`torch`), `training.metrics_profile_components`, `training.metrics_target_seconds`, `training.adaptive_metrics_schedule`, `training.final_exact_eval`.
 
 ## Data generation guide
 
@@ -96,7 +98,41 @@ pytest tests/ -q
 - Set `data.K_max` ≥ largest **K** in the dataset; the model pads to `max_K = K_max`.
 - `training.device`: default `auto` (uses CUDA when available, else CPU). On multi-GPU nodes, training uses all visible GPUs via `DataParallel`.
 - If your YAML still says `training.device: cpu`, train/infer will still prefer CUDA when available on cluster nodes. Set environment variable `DENSITY2SSE_FORCE_CPU=1` to force CPU.
+- Per-epoch timings are logged for `train_epoch`, train metrics, `validate_epoch`, val metrics, overlay export, and checkpoint writes. If progress appears stuck, inspect these stage timings first.
+- For Slurm/cluster runs, reduce post-epoch CPU load:
+  - `training.metrics_every_n_epochs: 2` (or larger)
+  - `training.val_metrics_max_batches: 8` (or smaller for fast feedback)
+  - `training.metrics_compute_coverage: false` and `training.metrics_compute_clash: false` while debugging stalls
+  - `training.viz_enabled: false` or `training.viz_every_n_epochs: 5`
+- Useful heartbeat for long metrics phases: `training.metrics_log_every_n_batches: 5`.
+- For exact metrics with better throughput:
+  - `training.metrics_kernel_impl: optimized`
+  - `training.metrics_backend: auto` (uses torch backend on CUDA when available)
+  - `training.metrics_profile_components: true` for detailed component timing
+  - `training.adaptive_metrics_schedule: true` + `training.metrics_target_seconds` to auto-control metric cadence
+  - keep `training.final_exact_eval: true` so final benchmark semantics stay complete
 - **Tiny overfit**: use very small `synthetic.num_samples_*`, `training.num_epochs: 1`, and a small `data.box_size` (e.g. 32) to sanity-check the pipeline (`configs/run.yaml` is a minimal example).
+
+Recommended Slurm profile snippet:
+
+```yaml
+training:
+  device: auto
+  num_workers: 2
+  metrics_kernel_impl: optimized
+  metrics_backend: auto
+  metrics_profile_components: true
+  adaptive_metrics_schedule: true
+  metrics_target_seconds: 120
+  metrics_every_n_epochs: 2
+  metrics_train_max_batches: 4
+  val_metrics_max_batches: 8
+  metrics_compute_coverage: true
+  metrics_compute_clash: true
+  metrics_log_every_n_batches: 5
+  viz_enabled: false
+  final_exact_eval: true
+```
 
 ## Inference guide
 

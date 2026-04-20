@@ -7,6 +7,7 @@ import glob
 import os
 import re
 import shutil
+import time
 from typing import Any, Dict, Optional
 
 import torch
@@ -181,20 +182,64 @@ def run_training(
 
     metrics_path = os.path.join(run_dir, "metrics.csv")
     train_metric_batches = int(tcfg.get("metrics_train_max_batches", 8))
+    metrics_every_n_epochs = max(1, int(tcfg.get("metrics_every_n_epochs", 1)))
+    val_metric_batches_raw = tcfg.get("val_metrics_max_batches", None)
+    val_metric_batches = None if val_metric_batches_raw in (None, "", "none") else int(val_metric_batches_raw)
+    metrics_compute_coverage = bool(tcfg.get("metrics_compute_coverage", True))
+    metrics_compute_clash = bool(tcfg.get("metrics_compute_clash", True))
+    metrics_heartbeat_batches = max(0, int(tcfg.get("metrics_log_every_n_batches", 0)))
+    metrics_kernel_impl = str(tcfg.get("metrics_kernel_impl", "optimized")).strip().lower()
+    metrics_backend = str(tcfg.get("metrics_backend", "auto")).strip().lower()
+    metrics_profile_components = bool(tcfg.get("metrics_profile_components", False))
+    viz_enabled = bool(tcfg.get("viz_enabled", True))
+    viz_every_n_epochs = max(1, int(tcfg.get("viz_every_n_epochs", 1)))
+    viz_n_examples = max(1, int(tcfg.get("viz_n_examples", 2)))
+    metrics_target_seconds = float(tcfg.get("metrics_target_seconds", 0.0))
+    adaptive_metrics_schedule = bool(tcfg.get("adaptive_metrics_schedule", False))
+    final_exact_eval = bool(tcfg.get("final_exact_eval", True))
+    dynamic_metrics_every = metrics_every_n_epochs
 
     best_val = float("inf")
     epochs = int(tcfg["num_epochs"])
     for epoch in range(1, epochs + 1):
-        tr_loss = train_epoch(model, train_loader, opt, device, resolved_cfg)
-        LOG.info("epoch %s train_loss=%.6f", epoch, tr_loss)
+        epoch_t0 = time.perf_counter()
+        do_epoch_metrics = (epoch % dynamic_metrics_every) == 0
+        LOG.info("epoch %s/%s start", epoch, epochs)
 
-        tm = metrics_mod.aggregate_metrics_loader(
-            model,
-            train_loader,
-            device,
-            resolved_cfg,
-            max_batches=train_metric_batches,
-        )
+        t0 = time.perf_counter()
+        tr_loss = train_epoch(model, train_loader, opt, device, resolved_cfg)
+        train_dt = time.perf_counter() - t0
+        LOG.info("epoch %s stage=train_epoch done in %.2fs train_loss=%.6f", epoch, train_dt, tr_loss)
+
+        if do_epoch_metrics:
+            t0 = time.perf_counter()
+            tm = metrics_mod.aggregate_metrics_loader(
+                model,
+                train_loader,
+                device,
+                resolved_cfg,
+                max_batches=train_metric_batches,
+                compute_coverage=metrics_compute_coverage,
+                compute_clash=metrics_compute_clash,
+                log_every_n_batches=metrics_heartbeat_batches,
+                stage_label=f"epoch={epoch} split=train",
+                kernel_impl=metrics_kernel_impl,
+                backend=metrics_backend,
+                profile_components=metrics_profile_components,
+            )
+            train_metrics_dt = time.perf_counter() - t0
+            LOG.info("epoch %s stage=train_metrics done in %.2fs", epoch, train_metrics_dt)
+        else:
+            tm = {
+                "center_error": 0.0,
+                "angle_error": 0.0,
+                "length_error": 0.0,
+                "coverage_ratio": 0.0,
+                "clash_voxels": 0.0,
+                "loss_total": tr_loss,
+            }
+            LOG.info("epoch %s stage=train_metrics skipped (metrics_every_n_epochs=%d)", epoch, metrics_every_n_epochs)
+
         row_train = {
             "model_name": model_name,
             "run_id": run_id,
@@ -209,8 +254,44 @@ def run_training(
         }
 
         if val_loader is not None:
+            t0 = time.perf_counter()
             va_loss = validate_epoch(model, val_loader, device, resolved_cfg)
-            vm = metrics_mod.aggregate_metrics_loader(model, val_loader, device, resolved_cfg, max_batches=None)
+            val_dt = time.perf_counter() - t0
+            LOG.info("epoch %s stage=validate_epoch done in %.2fs val_loss=%.6f", epoch, val_dt, va_loss)
+
+            if do_epoch_metrics:
+                t0 = time.perf_counter()
+                vm = metrics_mod.aggregate_metrics_loader(
+                    model,
+                    val_loader,
+                    device,
+                    resolved_cfg,
+                    max_batches=val_metric_batches,
+                    compute_coverage=metrics_compute_coverage,
+                    compute_clash=metrics_compute_clash,
+                    log_every_n_batches=metrics_heartbeat_batches,
+                    stage_label=f"epoch={epoch} split=val",
+                    kernel_impl=metrics_kernel_impl,
+                    backend=metrics_backend,
+                    profile_components=metrics_profile_components,
+                )
+                val_metrics_dt = time.perf_counter() - t0
+                LOG.info("epoch %s stage=val_metrics done in %.2fs", epoch, val_metrics_dt)
+            else:
+                vm = {
+                    "center_error": 0.0,
+                    "angle_error": 0.0,
+                    "length_error": 0.0,
+                    "coverage_ratio": 0.0,
+                    "clash_voxels": 0.0,
+                    "loss_total": va_loss,
+                }
+                LOG.info(
+                    "epoch %s stage=val_metrics skipped (metrics_every_n_epochs=%d)",
+                    epoch,
+                    metrics_every_n_epochs,
+                )
+
             row_val = {
                 "model_name": model_name,
                 "run_id": run_id,
@@ -233,13 +314,16 @@ def run_training(
             )
             if vm["loss_total"] < best_val:
                 best_val = vm["loss_total"]
+                t0 = time.perf_counter()
                 torch.save(
                     _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
                     os.path.join(ckpt_dir, "best.pt"),
                 )
+                LOG.info("epoch %s stage=save_best done in %.2fs", epoch, time.perf_counter() - t0)
         else:
             row_val = None
 
+        t0 = time.perf_counter()
         with open(metrics_path, "a", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=METRICS_FIELDS)
             if f.tell() == 0:
@@ -247,23 +331,106 @@ def run_training(
             w.writerow(row_train)
             if row_val is not None:
                 w.writerow(row_val)
+        LOG.info("epoch %s stage=write_metrics_csv done in %.2fs", epoch, time.perf_counter() - t0)
 
-        if val_loader is not None:
-            viz_export.save_example_overlays(run_dir, model, val_loader, device, resolved_cfg, epoch, n_examples=2)
+        if val_loader is not None and viz_enabled and (epoch % viz_every_n_epochs == 0):
+            t0 = time.perf_counter()
+            viz_export.save_example_overlays(
+                run_dir,
+                model,
+                val_loader,
+                device,
+                resolved_cfg,
+                epoch,
+                n_examples=viz_n_examples,
+            )
+            LOG.info("epoch %s stage=viz_export done in %.2fs", epoch, time.perf_counter() - t0)
+        elif val_loader is not None:
+            LOG.info(
+                "epoch %s stage=viz_export skipped (viz_enabled=%s, viz_every_n_epochs=%d)",
+                epoch,
+                viz_enabled,
+                viz_every_n_epochs,
+            )
 
+        t0 = time.perf_counter()
         torch.save(
             _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
             os.path.join(ckpt_dir, "last.pt"),
         )
+        LOG.info("epoch %s stage=save_last done in %.2fs", epoch, time.perf_counter() - t0)
         if tcfg.get("save_every_epoch", True):
             pattern = str(tcfg.get("checkpoint_pattern", "epoch_{epoch:04d}.pt"))
             ep_name = pattern.format(epoch=epoch)
+            t0 = time.perf_counter()
             torch.save(
                 _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
                 os.path.join(ckpt_dir, ep_name),
             )
             keep_k = int(tcfg.get("keep_last_k_epoch_checkpoints", 0))
             _prune_epoch_checkpoints(ckpt_dir, keep_k)
+            LOG.info("epoch %s stage=save_epoch done in %.2fs", epoch, time.perf_counter() - t0)
+
+        if adaptive_metrics_schedule and metrics_target_seconds > 0 and val_loader is not None and do_epoch_metrics:
+            observed = 0.0
+            if "train_metrics_dt" in locals():
+                observed += float(train_metrics_dt)
+            if "val_metrics_dt" in locals():
+                observed += float(val_metrics_dt)
+            if observed > metrics_target_seconds and dynamic_metrics_every < max(16, metrics_every_n_epochs):
+                dynamic_metrics_every = min(dynamic_metrics_every * 2, max(16, metrics_every_n_epochs))
+                LOG.info(
+                    "epoch %s adaptive metrics schedule: observed %.2fs > target %.2fs, metrics_every_n_epochs -> %d",
+                    epoch,
+                    observed,
+                    metrics_target_seconds,
+                    dynamic_metrics_every,
+                )
+            elif observed < metrics_target_seconds * 0.5 and dynamic_metrics_every > metrics_every_n_epochs:
+                dynamic_metrics_every = max(metrics_every_n_epochs, dynamic_metrics_every // 2)
+                LOG.info(
+                    "epoch %s adaptive metrics schedule: observed %.2fs < target %.2fs, metrics_every_n_epochs -> %d",
+                    epoch,
+                    observed,
+                    metrics_target_seconds,
+                    dynamic_metrics_every,
+                )
+        LOG.info("epoch %s total_time=%.2fs", epoch, time.perf_counter() - epoch_t0)
+
+    # Final exact pass keeps benchmark semantics while allowing faster in-epoch schedules.
+    if final_exact_eval and val_loader is not None:
+        LOG.info("final_exact_eval start")
+        t0 = time.perf_counter()
+        vm_final = metrics_mod.aggregate_metrics_loader(
+            model,
+            val_loader,
+            device,
+            resolved_cfg,
+            max_batches=None,
+            compute_coverage=True,
+            compute_clash=True,
+            log_every_n_batches=metrics_heartbeat_batches,
+            stage_label="final_exact_eval split=val",
+            kernel_impl=metrics_kernel_impl,
+            backend=metrics_backend,
+            profile_components=metrics_profile_components,
+        )
+        with open(metrics_path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=METRICS_FIELDS)
+            row_final = {
+                "model_name": model_name,
+                "run_id": run_id,
+                "epoch": epochs,
+                "split": "val",
+                "center_error": vm_final["center_error"],
+                "angle_error": vm_final["angle_error"],
+                "length_error": vm_final["length_error"],
+                "coverage_ratio": vm_final["coverage_ratio"],
+                "clash_voxels": vm_final["clash_voxels"],
+                "loss_total": vm_final["loss_total"],
+            }
+            w.writerow(row_final)
+        LOG.info("final_exact_eval done in %.2fs", time.perf_counter() - t0)
 
     if val_loader is None:
         shutil.copy(os.path.join(ckpt_dir, "last.pt"), os.path.join(ckpt_dir, "best.pt"))
