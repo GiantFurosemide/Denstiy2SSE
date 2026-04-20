@@ -54,7 +54,7 @@ DEFAULTS: Dict[str, Any] = {
         "learning_rate": 1e-3,
         "weight_decay": 1e-5,
         "num_workers": 0,
-        "device": "cpu",
+        "device": "auto",
         "tiny_overfit": False,
         "tiny_num_samples": 8,
         "save_every_epoch": True,

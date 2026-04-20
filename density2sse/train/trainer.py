@@ -69,6 +69,13 @@ def _checkpoint_payload(
     }
 
 
+def _state_dict_for_saving(model: nn.Module) -> Dict[str, Any]:
+    """Return a clean state_dict even when wrapped in DataParallel."""
+    if isinstance(model, nn.DataParallel):
+        return model.module.state_dict()
+    return model.state_dict()
+
+
 def train_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -153,6 +160,12 @@ def run_training(
         )
 
     model = model_registry.build_model(resolved_cfg).to(device)
+    if device.type == "cuda":
+        gpu_count = torch.cuda.device_count()
+        if gpu_count > 1:
+            # Use all visible GPUs on cluster nodes by default.
+            model = nn.DataParallel(model)
+            LOG.info("Using DataParallel on %d GPUs", gpu_count)
 
     opt = torch.optim.Adam(
         model.parameters(),
@@ -221,7 +234,7 @@ def run_training(
             if vm["loss_total"] < best_val:
                 best_val = vm["loss_total"]
                 torch.save(
-                    _checkpoint_payload(model.state_dict(), epoch, resolved_cfg),
+                    _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
                     os.path.join(ckpt_dir, "best.pt"),
                 )
         else:
@@ -239,14 +252,14 @@ def run_training(
             viz_export.save_example_overlays(run_dir, model, val_loader, device, resolved_cfg, epoch, n_examples=2)
 
         torch.save(
-            _checkpoint_payload(model.state_dict(), epoch, resolved_cfg),
+            _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
             os.path.join(ckpt_dir, "last.pt"),
         )
         if tcfg.get("save_every_epoch", True):
             pattern = str(tcfg.get("checkpoint_pattern", "epoch_{epoch:04d}.pt"))
             ep_name = pattern.format(epoch=epoch)
             torch.save(
-                _checkpoint_payload(model.state_dict(), epoch, resolved_cfg),
+                _checkpoint_payload(_state_dict_for_saving(model), epoch, resolved_cfg),
                 os.path.join(ckpt_dir, ep_name),
             )
             keep_k = int(tcfg.get("keep_last_k_epoch_checkpoints", 0))

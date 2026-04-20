@@ -28,7 +28,7 @@ training:
   learning_rate: 0.001
   weight_decay: 0.00001
   num_workers: 0
-  device: cpu
+  device: auto
 
 loss:
   w_pos: 1.0

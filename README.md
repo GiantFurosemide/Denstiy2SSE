@@ -17,6 +17,15 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
+On some **SLURM clusters**, login nodes may not expose GPUs, so `pip` can end up with a CPU-only PyTorch build by default. Before running training on GPU compute nodes, force-install a CUDA wheel explicitly:
+
+```bash
+# example: CUDA 12.1 wheels from official PyTorch index
+pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+Adjust `cu121` to match your cluster CUDA runtime (for example `cu118`, `cu124`).
+
 Requires **Python ≥ 3.9**, **PyTorch**, **mrcfile**, **NumPy/SciPy**, **PyYAML**, **Biopython ≥ 1.85** (PIC/IC helix builder), **tqdm**, **matplotlib**.
 
 ## Quick start
@@ -85,7 +94,8 @@ pytest tests/ -q
 
 - Point `data.train_dir` / `data.val_dir` to folders of `.npz` files.
 - Set `data.K_max` ≥ largest **K** in the dataset; the model pads to `max_K = K_max`.
-- `training.device`: use `cuda` when available.
+- `training.device`: default `auto` (uses CUDA when available, else CPU). On multi-GPU nodes, training uses all visible GPUs via `DataParallel`.
+- If your YAML still says `training.device: cpu`, train/infer will still prefer CUDA when available on cluster nodes. Set environment variable `DENSITY2SSE_FORCE_CPU=1` to force CPU.
 - **Tiny overfit**: use very small `synthetic.num_samples_*`, `training.num_epochs: 1`, and a small `data.box_size` (e.g. 32) to sanity-check the pipeline (`configs/run.yaml` is a minimal example).
 
 ## Inference guide

@@ -23,7 +23,7 @@ training:
   learning_rate: 0.001
   weight_decay: 0.00001
   num_workers: 0
-  device: cpu
+  device: auto
   tiny_overfit: false
   save_every_epoch: true
   checkpoint_pattern: "epoch_{epoch:04d}.pt"
