@@ -21,3 +21,5 @@
 .env.test
 .env.production
 my_projects/
+outputs/
+data/
