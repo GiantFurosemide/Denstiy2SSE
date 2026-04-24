@@ -197,7 +197,11 @@ def aggregate_metrics_loader(
     with torch.no_grad():
         t_profile = {"match_s": 0.0, "coverage_s": 0.0, "clash_s": 0.0}
         if backend == "auto":
-            backend_resolved = "torch" if (device.type == "cuda" and kernel_impl == "optimized") else "numpy"
+            backend_resolved = (
+                "torch"
+                if (device.type in ("cuda", "mps") and kernel_impl == "optimized")
+                else "numpy"
+            )
         else:
             backend_resolved = backend
         for bi, batch in enumerate(loader):

@@ -19,29 +19,10 @@ from density2sse.model import registry as model_registry
 from density2sse.data.synthetic_generator import SyntheticConfig, generate_dataset_split
 from density2sse.export import export_pdb
 from density2sse.utils.logging_utils import setup_logging
+from density2sse.utils.runtime_device import get_torch_device
 from density2sse.utils.seed import set_seed
 
 LOG = setup_logging()
-
-
-def _resolve_runtime_device(device_s: str, cuda_available: bool, command: str) -> str:
-    """Map config device to runtime device with cluster-friendly defaults."""
-    ds = str(device_s).strip().lower()
-    if ds in {"auto", ""}:
-        return "cuda" if cuda_available else "cpu"
-    if ds == "cpu":
-        # For cluster defaults, prefer GPU unless user explicitly forces CPU by env.
-        if cuda_available and os.environ.get("DENSITY2SSE_FORCE_CPU", "0") != "1":
-            LOG.info("%s: CUDA is available; overriding training.device=cpu -> cuda", command)
-            return "cuda"
-        return "cpu"
-    if ds.startswith("cuda"):
-        if cuda_available:
-            return ds
-        LOG.warning("%s: requested %s but CUDA unavailable, falling back to cpu", command, ds)
-        return "cpu"
-    LOG.warning("%s: unknown training.device=%s, falling back to auto", command, device_s)
-    return "cuda" if cuda_available else "cpu"
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -162,8 +143,6 @@ def _cmd_prepare_data(args: argparse.Namespace) -> int:
 
 
 def _cmd_train(args: argparse.Namespace) -> int:
-    import torch
-
     from density2sse.train import trainer
 
     cfg = resolve_config(args.config)
@@ -171,8 +150,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     set_seed(int(cfg["project"]["seed"]))
     tcfg = cfg["training"]
     device_s = str(tcfg.get("device", "cpu"))
-    resolved_device = _resolve_runtime_device(device_s, torch.cuda.is_available(), command="train")
-    device = torch.device(resolved_device)
+    device = get_torch_device(device_s, command="train")
     data = cfg["data"]
     train_dir = _resolve_path(data["train_dir"])
     val_dir = _resolve_path(data["val_dir"])
@@ -197,8 +175,6 @@ def _cmd_train(args: argparse.Namespace) -> int:
 
 
 def _cmd_infer(args: argparse.Namespace) -> int:
-    import torch
-
     from density2sse.infer import predictor
 
     cfg = resolve_config(args.config)
@@ -206,8 +182,7 @@ def _cmd_infer(args: argparse.Namespace) -> int:
     set_seed(int(cfg["project"]["seed"]))
     inf = cfg["inference"]
     device_s = str(cfg["training"].get("device", "cpu"))
-    resolved_device = _resolve_runtime_device(device_s, torch.cuda.is_available(), command="infer")
-    device = torch.device(resolved_device)
+    device = get_torch_device(device_s, command="infer")
     out = predictor.run_inference(cfg, device)
     if inf.get("export_pdb", True):
         npz_path = inf["output_prefix"] + "_pred.npz"

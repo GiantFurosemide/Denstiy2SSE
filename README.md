@@ -28,6 +28,14 @@ Adjust `cu121` to match your cluster CUDA runtime (for example `cu118`, `cu124`)
 
 Requires **Python ≥ 3.9**, **PyTorch**, **mrcfile**, **NumPy/SciPy**, **PyYAML**, **Biopython ≥ 1.85** (PIC/IC helix builder), **tqdm**, **matplotlib**.
 
+## Device selection
+
+- `training.device: auto` (or empty) resolves in this order: **CUDA** if available, else **MPS** on **macOS** when the PyTorch MPS backend is available, else **CPU**.
+- Explicit values such as `cuda:0`, `mps`, or `cpu` are honored when the hardware/software allows; if you request `cuda` but no CUDA runtime is present, the code falls back to the same **auto** chain (with a warning). If you request `mps` but MPS is unavailable, it also falls back to **auto**.
+- To **force CPU** on a machine that has a GPU (e.g. debugging), set **`DENSITY2SSE_FORCE_CPU=1`**. Then `cpu` stays on CPU; `auto` also stays on CPU.
+- To **disable MPS** (e.g. driver issues on some macOS versions), set **`DENSITY2SSE_DISABLE_MPS=1`**; the auto chain will skip MPS and use CPU when CUDA is absent.
+- **Multi-GPU** `DataParallel` is used only when the resolved device is **CUDA** and more than one GPU is visible; MPS does not use `DataParallel` in the same way.
+
 ## Quick start
 
 ```bash

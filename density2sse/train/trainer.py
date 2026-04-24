@@ -235,6 +235,7 @@ def run_training(
         )
 
     model = model_registry.build_model(resolved_cfg).to(device)
+    # DataParallel is CUDA only (PyTorch does not support multi-GPU MPS the same way).
     if device.type == "cuda":
         gpu_count = torch.cuda.device_count()
         if gpu_count > 1:

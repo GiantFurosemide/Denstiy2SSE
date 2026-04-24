@@ -15,19 +15,11 @@ from density2sse.config import resolve_config
 from density2sse.data.dataset import HelixNPZDataset, collate_batch
 from density2sse.model import registry as model_registry
 from density2sse.train import metrics as metrics_mod
+from density2sse.utils.runtime_device import get_torch_device
 
 
 def _resolve_path(p: str) -> str:
     return p if os.path.isabs(p) else os.path.join(os.getcwd(), p)
-
-
-def _resolve_device(cfg: Dict[str, Any]) -> torch.device:
-    ds = str(cfg["training"].get("device", "auto")).lower().strip()
-    if ds in {"auto", ""}:
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if ds.startswith("cuda") and torch.cuda.is_available():
-        return torch.device(ds)
-    return torch.device("cpu")
 
 
 def _load_loader(cfg: Dict[str, Any], split: str) -> DataLoader:
@@ -87,7 +79,7 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = resolve_config(args.config)
-    dev = _resolve_device(cfg)
+    dev = get_torch_device(str(cfg["training"].get("device", "auto")), command="benchmark")
     model = model_registry.build_model(cfg).to(dev)
     if dev.type == "cuda" and torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
