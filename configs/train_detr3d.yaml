@@ -1,3 +1,47 @@
+# DETR-style decoder config / DETR风格解码器配置
+project:
+  output_dir: outputs # output root directory / 输出根目录
+  seed: 42 # global random seed / 全局随机种子
+
+data:
+  train_dir: data/train # training NPZ directory / 训练集NPZ目录
+  val_dir: data/val # validation NPZ directory / 验证集NPZ目录
+  test_dir: data/test # test NPZ directory / 测试集NPZ目录
+  voxel_size: 1.5 # voxel size in angstrom / 体素尺寸(埃)
+  box_size: 96 # cubic grid size per axis / 立方网格边长
+  K_min: 2 # minimum helices in synthetic samples / 合成样本最小螺旋数
+  K_max: 5 # maximum helices and output slots / 最大螺旋数与输出槽位
+
+model:
+  name: detr3d # model registry name / 模型注册名
+  in_channels: 1 # input channel count / 输入通道数
+  base_channels: 16 # base CNN channel width / CNN基础通道宽度
+  hidden_dim: 256 # shared hidden dim fallback / 通用隐藏维度回退值
+  arch:
+    d_model: 256 # transformer token width / Transformer特征维度
+    nhead: 8 # multi-head attention heads / 多头注意力头数
+    num_decoder_layers: 2 # decoder depth / 解码器层数
+    dim_feedforward: 512 # FFN hidden width / 前馈网络隐藏维度
+    transformer_dropout: 0.1 # transformer dropout ratio / Transformer丢弃率
+    transformer_norm_first: true # use pre-norm transformer / 是否使用Pre-Norm
+    transformer_activation: relu # FFN activation: relu/gelu / FFN激活函数
+    k_embed_mode: add # K conditioning mode: add/none / K条件注入方式
+
+training:
+  batch_size: 4 # mini-batch size / 小批量大小
+  num_epochs: 2 # total training epochs / 训练轮数
+  learning_rate: 0.001 # optimizer learning rate / 学习率
+  weight_decay: 0.00001 # L2 weight decay / 权重衰减
+  num_workers: 0 # dataloader worker count / 数据加载进程数
+  device: auto # device: auto/cpu/cuda/mps / 设备选择
+
+loss:
+  w_pos: 1.0 # center position loss weight / 位置损失权重
+  w_dir: 1.0 # direction loss weight / 方向损失权重
+  w_len: 1.0 # length loss weight / 长度损失权重
+  w_render: 0.0 # render consistency loss weight / 渲染一致性损失权重
+  w_clash: 0.0 # clash penalty weight / 碰撞惩罚权重
+  w_boundary: 0.0 # boundary support loss weight / 边界约束损失权重
 # DETR-style decoder (same data; switch model only).
 project:
   output_dir: outputs
@@ -17,10 +61,15 @@ model:
   in_channels: 1
   base_channels: 16
   hidden_dim: 256
-  d_model: 256
-  nhead: 8
-  num_decoder_layers: 2
-  dim_feedforward: 512
+  arch:
+    d_model: 256                  # transformer token width
+    nhead: 8                      # attention heads
+    num_decoder_layers: 2         # decoder depth
+    dim_feedforward: 512          # FFN width in decoder blocks
+    transformer_dropout: 0.1      # dropout in transformer decoder
+    transformer_norm_first: true  # pre-norm transformer
+    transformer_activation: relu  # relu/gelu inside decoder FFN
+    k_embed_mode: add             # add/none: inject K embedding to memory tokens
 
 training:
   batch_size: 4

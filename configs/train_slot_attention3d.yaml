@@ -1,4 +1,4 @@
-# Weights-only resume training config / 仅权重恢复训练配置
+# Slot-Attention 3D training config / Slot-Attention 3D训练配置
 project:
   output_dir: outputs # output root directory / 输出根目录
   seed: 42 # global random seed / 全局随机种子
@@ -13,25 +13,28 @@ data:
   K_max: 5 # maximum helices and output slots / 最大螺旋数与输出槽位
 
 model:
-  name: baseline_cnn # model registry name / 模型注册名
+  name: slot_attention3d # model registry name / 模型注册名
   in_channels: 1 # input channel count / 输入通道数
   base_channels: 16 # base CNN channel width / CNN基础通道宽度
-  hidden_dim: 256 # shared hidden dim fallback / 通用隐藏维度
+  hidden_dim: 256 # shared hidden dim fallback / 通用隐藏维度回退值
+  arch:
+    slot_dim: 256 # slot state dimension / 槽状态维度
+    slot_iters: 3 # slot attention iterations / 槽注意力迭代次数
+    token_proj_dim: 256 # token projection width / token投影维度
+    slot_mlp_hidden: 512 # slot update MLP hidden width / 槽更新MLP隐藏维度
 
 training:
   batch_size: 4 # mini-batch size / 小批量大小
-  num_epochs: 20 # total training epochs / 训练轮数
+  num_epochs: 2 # total training epochs / 训练轮数
   learning_rate: 0.001 # optimizer learning rate / 学习率
   weight_decay: 0.00001 # L2 weight decay / 权重衰减
   num_workers: 0 # dataloader worker count / 数据加载进程数
   device: auto # device: auto/cpu/cuda/mps / 设备选择
-  resume:
-    enabled: true # enable resume mode / 是否启用恢复训练
-    checkpoint: outputs/train/your_run/checkpoints/last.pt # resume checkpoint path / 恢复checkpoint路径
-    mode: weights_only # resume strategy: weights_only / 恢复策略
-    strict_load: true # strict state-dict loading / 是否严格加载参数
 
 loss:
   w_pos: 1.0 # center position loss weight / 位置损失权重
   w_dir: 1.0 # direction loss weight / 方向损失权重
   w_len: 1.0 # length loss weight / 长度损失权重
+  w_render: 0.0 # render consistency loss weight / 渲染一致性损失权重
+  w_clash: 0.0 # clash penalty weight / 碰撞惩罚权重
+  w_boundary: 0.0 # boundary support loss weight / 边界约束损失权重

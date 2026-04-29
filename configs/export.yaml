@@ -1,6 +1,7 @@
+# NPZ-to-PDB export config / NPZ转PDB导出配置
 project:
-  seed: 42
+  seed: 42 # global random seed / 全局随机种子
 
 export:
-  input_npz: outputs/infer/example_run_pred.npz
-  output_pdb: outputs/export/example.pdb
+  input_npz: outputs/infer/example_run_pred.npz # input prediction NPZ path / 输入预测NPZ路径
+  output_pdb: outputs/export/example.pdb # output PDB path / 输出PDB路径

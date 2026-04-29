@@ -24,31 +24,54 @@ class BaselineHelixCNN(nn.Module):
         base_channels: int = 16,
         hidden_dim: int = 256,
         box_extent_angstrom: float = 144.0,
+        k_embed_dim: int = 32,
+        mlp_hidden_dim: int = 256,
+        mlp_num_layers: int = 2,
+        mlp_dropout: float = 0.0,
+        activation: str = "relu",
     ) -> None:
         super().__init__()
         self.max_K = max_K
         self.box_extent = float(box_extent_angstrom)
         self.half_extent = 0.5 * self.box_extent
+        self.mlp_num_layers = max(1, int(mlp_num_layers))
+        self.mlp_dropout = float(mlp_dropout)
         c = base_channels
+        act = self._make_activation(activation)
         self.enc = nn.Sequential(
             nn.Conv3d(in_channels, c, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
+            act,
             nn.Conv3d(c, c * 2, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
+            self._make_activation(activation),
             nn.Conv3d(c * 2, c * 4, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
+            self._make_activation(activation),
             nn.Conv3d(c * 4, c * 4, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
+            self._make_activation(activation),
         )
         # global pool
-        self.fc_k = nn.Linear(1, 32)
-        self.fc = nn.Sequential(
-            nn.Linear(c * 4 + 32, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, max_K * 7),
-        )
+        self.fc_k = nn.Linear(1, int(k_embed_dim))
+        layers = []
+        in_dim = c * 4 + int(k_embed_dim)
+        hid = int(mlp_hidden_dim or hidden_dim)
+        for _ in range(self.mlp_num_layers):
+            layers.append(nn.Linear(in_dim, hid))
+            layers.append(self._make_activation(activation))
+            if self.mlp_dropout > 0:
+                layers.append(nn.Dropout(p=self.mlp_dropout))
+            in_dim = hid
+        layers.append(nn.Linear(in_dim, max_K * 7))
+        self.fc = nn.Sequential(*layers)
+
+    @staticmethod
+    def _make_activation(name: str) -> nn.Module:
+        n = str(name).strip().lower()
+        if n == "relu":
+            return nn.ReLU(inplace=True)
+        if n == "gelu":
+            return nn.GELU()
+        if n == "silu":
+            return nn.SiLU(inplace=True)
+        raise ValueError(f"Unsupported activation={name!r}; choose relu/gelu/silu")
 
     def forward(self, mask: torch.Tensor, k: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """

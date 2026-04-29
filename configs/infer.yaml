@@ -1,22 +1,23 @@
+# Inference config / 推理配置
 project:
-  seed: 42
+  seed: 42 # global random seed / 全局随机种子
 
 data:
-  voxel_size: 1.5
-  box_size: 96
-  K_max: 5
+  voxel_size: 1.5 # voxel size in angstrom (for frame consistency) / 体素尺寸(用于坐标一致性)
+  box_size: 96 # cubic grid size expected by checkpoint / checkpoint期望网格边长
+  K_max: 5 # maximum output slots in model / 模型最大输出槽位数
 
 model:
-  in_channels: 1
-  base_channels: 16
-  hidden_dim: 256
+  in_channels: 1 # input channel count fallback / 输入通道数回退
+  base_channels: 16 # base CNN channel fallback / CNN基础通道回退
+  hidden_dim: 256 # hidden dim fallback for legacy checkpoints / 旧checkpoint隐藏维度回退
 
 training:
-  device: cpu
+  device: cpu # runtime device for inference / 推理运行设备
 
 inference:
-  K: 3
-  checkpoint: outputs/train/latest_placeholder/checkpoints/best.pt
-  export_pdb: true
-  input_mrc: examples/example_mask.mrc
-  output_prefix: outputs/infer/example_run
+  K: 3 # requested helix count at inference / 推理请求螺旋数
+  checkpoint: outputs/train/latest_placeholder/checkpoints/best.pt # checkpoint path / checkpoint路径
+  export_pdb: true # export predicted PDB / 是否导出预测PDB
+  input_mrc: examples/example_mask.mrc # input mask MRC path / 输入掩膜MRC路径
+  output_prefix: outputs/infer/example_run # output file prefix / 输出文件前缀

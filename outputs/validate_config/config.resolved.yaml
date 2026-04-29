@@ -30,6 +30,16 @@ synthetic:
   export_mrc: false
   export_pdb: false
   num_workers: 1
+prepare_data:
+  annotation_path: null
+  mrc_root: .
+  sample_id_key: sample_id
+  mrc_path_key: mrc_path
+  split_key: split
+  default_split: train
+  strict: true
+  output_meta_json: true
+  source_type: real_data
 model:
   name: baseline_cnn
   in_channels: 1
@@ -39,6 +49,25 @@ model:
   nhead: 8
   num_decoder_layers: 2
   dim_feedforward: 512
+  arch:
+    activation: relu
+    k_embed_dim: 32
+    mlp_hidden_dim: 256
+    mlp_num_layers: 2
+    mlp_dropout: 0.0
+    d_model: 256
+    nhead: 8
+    num_decoder_layers: 2
+    dim_feedforward: 512
+    transformer_dropout: 0.1
+    transformer_norm_first: true
+    transformer_activation: relu
+    k_embed_mode: add
+    slot_dim: 256
+    slot_iters: 3
+    token_proj_dim: 256
+    slot_mlp_hidden: 512
+    multiscale_levels: 3
 training:
   batch_size: 4
   num_epochs: 2
@@ -63,9 +92,18 @@ training:
   metrics_target_seconds: 0.0
   adaptive_metrics_schedule: false
   final_exact_eval: true
+  resume:
+    enabled: false
+    checkpoint: null
+    mode: weights_only
+    reset_lr: false
+    strict_load: true
   viz_enabled: true
   viz_every_n_epochs: 1
   viz_n_examples: 2
+  plot_metrics_enabled: true
+  plot_metrics_every_n_epochs: 1
+  plot_metrics_per_metric: true
 loss:
   w_pos: 1.0
   w_dir: 1.0

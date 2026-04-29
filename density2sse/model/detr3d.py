@@ -27,6 +27,10 @@ class Detr3DHelix(nn.Module):
         nhead: int = 8,
         num_decoder_layers: int = 2,
         dim_feedforward: int = 512,
+        transformer_dropout: float = 0.1,
+        transformer_norm_first: bool = True,
+        transformer_activation: str = "relu",
+        k_embed_mode: str = "add",
     ) -> None:
         super().__init__()
         self.max_K = max_K
@@ -46,13 +50,17 @@ class Detr3DHelix(nn.Module):
         enc_c = c * 4
         self.enc_proj = nn.Linear(enc_c, d_model)
         self.fc_k = nn.Linear(1, d_model)
+        self.k_embed_mode = str(k_embed_mode).strip().lower()
+        if self.k_embed_mode not in {"add", "none"}:
+            raise ValueError("k_embed_mode must be 'add' or 'none'")
         decoder_layer = nn.TransformerDecoderLayer(
             d_model,
             nhead,
             dim_feedforward,
-            dropout=0.1,
+            dropout=float(transformer_dropout),
             batch_first=True,
-            norm_first=True,
+            norm_first=bool(transformer_norm_first),
+            activation=str(transformer_activation),
         )
         self.decoder = nn.TransformerDecoder(decoder_layer, num_decoder_layers)
         self.query_embed = nn.Embedding(max_K, d_model)
@@ -64,8 +72,9 @@ class Detr3DHelix(nn.Module):
         # (B, C, Dz, Dy, Dx) -> tokens
         flat = feat.flatten(2).transpose(1, 2)
         memory = self.enc_proj(flat)
-        kemb = self.fc_k(k.float().unsqueeze(-1) / float(self.max_K))
-        memory = memory + kemb.unsqueeze(1)
+        if self.k_embed_mode == "add":
+            kemb = self.fc_k(k.float().unsqueeze(-1) / float(self.max_K))
+            memory = memory + kemb.unsqueeze(1)
         q = self.query_embed.weight.unsqueeze(0).expand(b, -1, -1)
         tgt = self.decoder(q, memory)
         raw = self.out(tgt)

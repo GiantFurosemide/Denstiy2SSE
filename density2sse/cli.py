@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -251,7 +252,12 @@ def _cmd_test(args: argparse.Namespace) -> int:
     cmd = [sys.executable, "-m", "pytest", "tests", "-q"]
     if args.extra:
         cmd.extend(args.extra)
-    return subprocess.call(cmd)
+    env = os.environ.copy()
+    # On some macOS x86_64/rosetta setups, OpenBLAS CPU autodetect can trigger
+    # a floating-point exception during NumPy import (_mac_os_check).
+    if sys.platform == "darwin" and platform.machine().lower() in {"x86_64", "amd64"}:
+        env.setdefault("OPENBLAS_CORETYPE", "Haswell")
+    return subprocess.call(cmd, env=env)
 
 
 def _cmd_run(args: argparse.Namespace) -> int:

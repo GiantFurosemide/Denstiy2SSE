@@ -1,36 +1,42 @@
-# Baseline CNN only (default loss weights).
+# Baseline CNN training config / Baseline CNN训练配置
 project:
-  output_dir: outputs
-  seed: 42
+  output_dir: outputs # output root directory / 输出根目录
+  seed: 42 # global random seed / 全局随机种子
 
 data:
-  train_dir: data/train
-  val_dir: data/val
-  test_dir: data/test
-  voxel_size: 1.5
-  box_size: 96
-  K_min: 2
-  K_max: 5
+  train_dir: data/train # training NPZ directory / 训练集NPZ目录
+  val_dir: data/val # validation NPZ directory / 验证集NPZ目录
+  test_dir: data/test # test NPZ directory / 测试集NPZ目录
+  voxel_size: 1.5 # voxel size in angstrom / 体素尺寸(埃)
+  box_size: 96 # cubic grid size per axis / 立方网格边长
+  K_min: 2 # minimum helices in synthetic samples / 合成样本最小螺旋数
+  K_max: 5 # maximum helices and output slots / 最大螺旋数与输出槽位
 
 model:
-  name: baseline_cnn
-  in_channels: 1
-  base_channels: 16
-  hidden_dim: 256
+  name: baseline_cnn # model registry name / 模型注册名
+  in_channels: 1 # input channel count / 输入通道数
+  base_channels: 16 # base CNN channel width / CNN基础通道宽度
+  hidden_dim: 256 # shared hidden dim fallback / 通用隐藏维度回退值
+  arch:
+    activation: relu # activation: relu/gelu/silu / 激活函数
+    k_embed_dim: 32 # embedding width for K conditioning / K条件嵌入维度
+    mlp_hidden_dim: 256 # hidden width of regression MLP / 回归MLP隐藏维度
+    mlp_num_layers: 2 # number of hidden MLP blocks / MLP隐藏层数
+    mlp_dropout: 0.0 # dropout ratio in MLP blocks / MLP丢弃率
 
 training:
-  batch_size: 4
-  num_epochs: 2
-  learning_rate: 0.001
-  weight_decay: 0.00001
-  num_workers: 0
-  device: auto
-  tiny_overfit: false
+  batch_size: 4 # mini-batch size / 小批量大小
+  num_epochs: 2 # total training epochs / 训练轮数
+  learning_rate: 0.001 # optimizer learning rate / 学习率
+  weight_decay: 0.00001 # L2 weight decay / 权重衰减
+  num_workers: 0 # dataloader worker count / 数据加载进程数
+  device: auto # device: auto/cpu/cuda/mps / 设备选择
+  tiny_overfit: false # enable tiny-overfit mode / 是否启用极小样本过拟合模式
 
 loss:
-  w_pos: 1.0
-  w_dir: 1.0
-  w_len: 1.0
-  w_render: 0.0
-  w_clash: 0.0
-  w_boundary: 0.0
+  w_pos: 1.0 # center position loss weight / 位置损失权重
+  w_dir: 1.0 # direction loss weight / 方向损失权重
+  w_len: 1.0 # length loss weight / 长度损失权重
+  w_render: 0.0 # render consistency loss weight / 渲染一致性损失权重
+  w_clash: 0.0 # clash penalty weight / 碰撞惩罚权重
+  w_boundary: 0.0 # boundary support loss weight / 边界约束损失权重

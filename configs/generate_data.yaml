@@ -1,25 +1,26 @@
+# Synthetic data generation config / 合成数据生成配置
 project:
-  name: density2sse
-  output_dir: outputs
-  seed: 42
+  name: density2sse # project name / 项目名称
+  output_dir: outputs # output root directory / 输出根目录
+  seed: 42 # global random seed / 全局随机种子
 
 data:
-  train_dir: data/train
-  val_dir: data/val
-  test_dir: data/test
-  voxel_size: 1.5
-  box_size: 96
-  K_min: 2
-  K_max: 5
+  train_dir: data/train # training NPZ directory / 训练集NPZ目录
+  val_dir: data/val # validation NPZ directory / 验证集NPZ目录
+  test_dir: data/test # test NPZ directory / 测试集NPZ目录
+  voxel_size: 1.5 # voxel size in angstrom / 体素尺寸(埃)
+  box_size: 96 # cubic grid size per axis / 立方网格边长
+  K_min: 2 # minimum helices per sample / 每个样本最小螺旋数
+  K_max: 5 # maximum helices per sample / 每个样本最大螺旋数
 
 synthetic:
-  num_workers: 4
-  num_samples_train: 2000
-  num_samples_val: 200
-  num_samples_test: 200
-  retry_limit: 500
-  length_min: 12.0
-  length_max: 30.0
-  tube_radius: 2.5
-  export_mrc: false
-  export_pdb: false
+  num_workers: 4 # parallel workers for generation / 生成并行进程数
+  num_samples_train: 2000 # number of train samples / 训练样本数
+  num_samples_val: 200 # number of validation samples / 验证样本数
+  num_samples_test: 200 # number of test samples / 测试样本数
+  retry_limit: 500 # max retries for valid placement / 合法放置最大重试次数
+  length_min: 12.0 # minimum helix length (angstrom) / 螺旋最小长度(埃)
+  length_max: 30.0 # maximum helix length (angstrom) / 螺旋最大长度(埃)
+  tube_radius: 2.5 # synthetic tube radius (angstrom) / 合成管半径(埃)
+  export_mrc: false # whether to export .mrc files / 是否导出.mrc
+  export_pdb: false # whether to export .pdb files / 是否导出.pdb

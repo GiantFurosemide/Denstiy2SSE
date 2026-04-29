@@ -1,46 +1,47 @@
+# Multi-stage run config / 多阶段流水线配置
 project:
-  output_dir: outputs
-  seed: 42
+  output_dir: outputs # output root directory / 输出根目录
+  seed: 42 # global random seed / 全局随机种子
 
 run:
-  stages:
-    - generate-data
-    - train
+  stages: # ordered stages to execute / 按顺序执行的阶段
+    - generate-data # generate synthetic data / 生成合成数据
+    - train # train model / 训练模型
 
 data:
-  train_dir: data/train
-  val_dir: data/val
-  test_dir: data/test
-  voxel_size: 1.5
-  box_size: 32
-  K_min: 2
-  K_max: 3
+  train_dir: data/train # training NPZ directory / 训练集NPZ目录
+  val_dir: data/val # validation NPZ directory / 验证集NPZ目录
+  test_dir: data/test # test NPZ directory / 测试集NPZ目录
+  voxel_size: 1.5 # voxel size in angstrom / 体素尺寸(埃)
+  box_size: 32 # cubic grid size per axis / 立方网格边长
+  K_min: 2 # minimum helices in synthetic samples / 合成样本最小螺旋数
+  K_max: 3 # maximum helices and output slots / 最大螺旋数与输出槽位
 
 synthetic:
-  num_samples_train: 4
-  num_samples_val: 2
-  num_samples_test: 2
-  retry_limit: 300
-  length_min: 12.0
-  length_max: 24.0
-  tube_radius: 2.5
-  export_mrc: false
-  export_pdb: false
+  num_samples_train: 4 # number of train samples / 训练样本数
+  num_samples_val: 2 # number of validation samples / 验证样本数
+  num_samples_test: 2 # number of test samples / 测试样本数
+  retry_limit: 300 # max retries for valid placement / 合法放置最大重试次数
+  length_min: 12.0 # minimum helix length (angstrom) / 螺旋最小长度(埃)
+  length_max: 24.0 # maximum helix length (angstrom) / 螺旋最大长度(埃)
+  tube_radius: 2.5 # synthetic tube radius (angstrom) / 合成管半径(埃)
+  export_mrc: false # whether to export .mrc files / 是否导出.mrc
+  export_pdb: false # whether to export .pdb files / 是否导出.pdb
 
 model:
-  in_channels: 1
-  base_channels: 8
-  hidden_dim: 64
+  in_channels: 1 # input channel count / 输入通道数
+  base_channels: 8 # base CNN channel width / CNN基础通道宽度
+  hidden_dim: 64 # shared hidden dim / 通用隐藏维度
 
 training:
-  batch_size: 2
-  num_epochs: 1
-  learning_rate: 0.001
-  weight_decay: 0.00001
-  num_workers: 0
-  device: auto
+  batch_size: 2 # mini-batch size / 小批量大小
+  num_epochs: 1 # total training epochs / 训练轮数
+  learning_rate: 0.001 # optimizer learning rate / 学习率
+  weight_decay: 0.00001 # L2 weight decay / 权重衰减
+  num_workers: 0 # dataloader worker count / 数据加载进程数
+  device: auto # device: auto/cpu/cuda/mps / 设备选择
 
 loss:
-  w_pos: 1.0
-  w_dir: 1.0
-  w_len: 1.0
+  w_pos: 1.0 # center position loss weight / 位置损失权重
+  w_dir: 1.0 # direction loss weight / 方向损失权重
+  w_len: 1.0 # length loss weight / 长度损失权重

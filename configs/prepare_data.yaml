@@ -1,19 +1,20 @@
+# Real-data conversion config / 真实数据转换配置
 project:
-  output_dir: outputs
-  seed: 42
+  output_dir: outputs # output root directory / 输出根目录
+  seed: 42 # global random seed / 全局随机种子
 
 data:
-  train_dir: data/train
-  val_dir: data/val
-  test_dir: data/test
+  train_dir: data/train # training NPZ output directory / 训练集NPZ输出目录
+  val_dir: data/val # validation NPZ output directory / 验证集NPZ输出目录
+  test_dir: data/test # test NPZ output directory / 测试集NPZ输出目录
 
 prepare_data:
-  annotation_path: data/annotations/global_labels.json
-  mrc_root: data/mrc
-  sample_id_key: sample_id
-  mrc_path_key: mrc_path
-  split_key: split
-  default_split: train
-  strict: true
-  output_meta_json: true
-  source_type: real_data
+  annotation_path: data/annotations/global_labels.json # global annotation JSON/CSV path / 全局标注文件路径
+  mrc_root: data/mrc # root directory for MRC files / MRC文件根目录
+  sample_id_key: sample_id # key name for sample ID / 样本ID字段名
+  mrc_path_key: mrc_path # key name for mrc relative path / MRC路径字段名
+  split_key: split # key name for split field / 划分字段名
+  default_split: train # fallback split if missing / 缺省划分
+  strict: true # fail on malformed records / 是否严格校验
+  output_meta_json: true # write metadata sidecar JSON / 是否输出meta侧车JSON
+  source_type: real_data # source type tag in output / 输出中的数据来源标签

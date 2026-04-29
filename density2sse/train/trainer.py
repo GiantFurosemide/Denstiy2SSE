@@ -19,6 +19,7 @@ from density2sse.data.dataset import collate_batch
 from density2sse.model import registry as model_registry
 from density2sse.train import losses as loss_mod
 from density2sse.train import metrics as metrics_mod
+from density2sse.train import metrics_plot
 from density2sse.train import viz_export
 from density2sse.utils.logging_utils import setup_logging
 
@@ -272,6 +273,9 @@ def run_training(
     metrics_target_seconds = float(tcfg.get("metrics_target_seconds", 0.0))
     adaptive_metrics_schedule = bool(tcfg.get("adaptive_metrics_schedule", False))
     final_exact_eval = bool(tcfg.get("final_exact_eval", True))
+    plot_metrics_enabled = bool(tcfg.get("plot_metrics_enabled", True))
+    plot_metrics_every_n_epochs = max(1, int(tcfg.get("plot_metrics_every_n_epochs", 1)))
+    plot_metrics_per_metric = bool(tcfg.get("plot_metrics_per_metric", True))
     dynamic_metrics_every = metrics_every_n_epochs
 
     epochs = int(tcfg["num_epochs"])
@@ -414,6 +418,31 @@ def run_training(
             if row_val is not None:
                 w.writerow(row_val)
         LOG.info("epoch %s stage=write_metrics_csv done in %.2fs", epoch, time.perf_counter() - t0)
+        if plot_metrics_enabled and (epoch % plot_metrics_every_n_epochs == 0):
+            t0 = time.perf_counter()
+            try:
+                out_files = metrics_plot.export_epoch_metric_plots(
+                    metrics_path,
+                    plot_dir,
+                    epoch,
+                    per_metric=plot_metrics_per_metric,
+                    metrics_every_n_epochs=dynamic_metrics_every,
+                )
+                LOG.info(
+                    "epoch %s stage=plot_metrics done in %.2fs files=%d",
+                    epoch,
+                    time.perf_counter() - t0,
+                    len(out_files),
+                )
+            except Exception as e:  # pragma: no cover - plotting must not break training
+                LOG.warning("epoch %s stage=plot_metrics failed (ignored): %s", epoch, e)
+        else:
+            LOG.info(
+                "epoch %s stage=plot_metrics skipped (plot_metrics_enabled=%s, plot_metrics_every_n_epochs=%d)",
+                epoch,
+                plot_metrics_enabled,
+                plot_metrics_every_n_epochs,
+            )
 
         if val_loader is not None and viz_enabled and (epoch % viz_every_n_epochs == 0):
             t0 = time.perf_counter()
@@ -524,6 +553,18 @@ def run_training(
                 "loss_total": vm_final["loss_total"],
             }
             w.writerow(row_final)
+        if plot_metrics_enabled:
+            try:
+                out_files = metrics_plot.export_epoch_metric_plots(
+                    metrics_path,
+                    plot_dir,
+                    epochs,
+                    per_metric=plot_metrics_per_metric,
+                    metrics_every_n_epochs=dynamic_metrics_every,
+                )
+                LOG.info("final_exact_eval stage=plot_metrics files=%d", len(out_files))
+            except Exception as e:  # pragma: no cover - plotting must not break training
+                LOG.warning("final_exact_eval stage=plot_metrics failed (ignored): %s", e)
         LOG.info("final_exact_eval done in %.2fs", time.perf_counter() - t0)
 
     if val_loader is None:

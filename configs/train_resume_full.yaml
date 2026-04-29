@@ -1,37 +1,38 @@
+# Full-resume training config / 全量恢复训练配置
 project:
-  output_dir: outputs
-  seed: 42
+  output_dir: outputs # output root directory / 输出根目录
+  seed: 42 # global random seed / 全局随机种子
 
 data:
-  train_dir: data/train
-  val_dir: data/val
-  test_dir: data/test
-  voxel_size: 1.5
-  box_size: 96
-  K_min: 2
-  K_max: 5
+  train_dir: data/train # training NPZ directory / 训练集NPZ目录
+  val_dir: data/val # validation NPZ directory / 验证集NPZ目录
+  test_dir: data/test # test NPZ directory / 测试集NPZ目录
+  voxel_size: 1.5 # voxel size in angstrom / 体素尺寸(埃)
+  box_size: 96 # cubic grid size per axis / 立方网格边长
+  K_min: 2 # minimum helices in synthetic samples / 合成样本最小螺旋数
+  K_max: 5 # maximum helices and output slots / 最大螺旋数与输出槽位
 
 model:
-  name: baseline_cnn
-  in_channels: 1
-  base_channels: 16
-  hidden_dim: 256
+  name: baseline_cnn # model registry name / 模型注册名
+  in_channels: 1 # input channel count / 输入通道数
+  base_channels: 16 # base CNN channel width / CNN基础通道宽度
+  hidden_dim: 256 # shared hidden dim fallback / 通用隐藏维度
 
 training:
-  batch_size: 4
-  num_epochs: 20
-  learning_rate: 0.001
-  weight_decay: 0.00001
-  num_workers: 0
-  device: auto
+  batch_size: 4 # mini-batch size / 小批量大小
+  num_epochs: 20 # total training epochs / 训练轮数
+  learning_rate: 0.001 # optimizer learning rate / 学习率
+  weight_decay: 0.00001 # L2 weight decay / 权重衰减
+  num_workers: 0 # dataloader worker count / 数据加载进程数
+  device: auto # device: auto/cpu/cuda/mps / 设备选择
   resume:
-    enabled: true
-    checkpoint: outputs/train/your_run/checkpoints/last.pt
-    mode: full_resume
-    reset_lr: false
-    strict_load: true
+    enabled: true # enable resume mode / 是否启用恢复训练
+    checkpoint: outputs/train/your_run/checkpoints/last.pt # resume checkpoint path / 恢复checkpoint路径
+    mode: full_resume # resume strategy: full_resume / 恢复策略
+    reset_lr: false # reset LR after optimizer restore / 恢复后是否重置学习率
+    strict_load: true # strict state-dict loading / 是否严格加载参数
 
 loss:
-  w_pos: 1.0
-  w_dir: 1.0
-  w_len: 1.0
+  w_pos: 1.0 # center position loss weight / 位置损失权重
+  w_dir: 1.0 # direction loss weight / 方向损失权重
+  w_len: 1.0 # length loss weight / 长度损失权重

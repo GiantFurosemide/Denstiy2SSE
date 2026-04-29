@@ -87,7 +87,7 @@ pytest tests/ -q
 - **All runtime parameters are YAML-driven.** Defaults live in `density2sse/config.py` and are merged with your file.
 - Every training/inference run should use a **resolved snapshot** (`config.resolved.yaml`) under the run directory where applicable.
 - Important groups: `project`, `data`, `synthetic`, `prepare_data`, `model`, `training`, `loss`, `inference`, `export`, `run`.
-- New training throttling knobs are backward-compatible (old YAMLs still run): `training.metrics_every_n_epochs`, `training.val_metrics_max_batches`, `training.metrics_compute_coverage`, `training.metrics_compute_clash`, `training.metrics_log_every_n_batches`, `training.viz_enabled`, `training.viz_every_n_epochs`, `training.viz_n_examples`.
+- New training throttling knobs are backward-compatible (old YAMLs still run): `training.metrics_every_n_epochs`, `training.val_metrics_max_batches`, `training.metrics_compute_coverage`, `training.metrics_compute_clash`, `training.metrics_log_every_n_batches`, `training.viz_enabled`, `training.viz_every_n_epochs`, `training.viz_n_examples`, `training.plot_metrics_enabled`, `training.plot_metrics_every_n_epochs`, `training.plot_metrics_per_metric`.
 - Backend/perf knobs for exact metrics: `training.metrics_kernel_impl` (`legacy`/`optimized`), `training.metrics_backend` (`auto`/`numpy`/`torch`), `training.metrics_profile_components`, `training.metrics_target_seconds`, `training.adaptive_metrics_schedule`, `training.final_exact_eval`.
 
 ## Data generation guide
@@ -134,6 +134,12 @@ density2sse prepare-data -i configs/prepare_data.yaml
   - `training.metrics_profile_components: true` for detailed component timing
   - `training.adaptive_metrics_schedule: true` + `training.metrics_target_seconds` to auto-control metric cadence
   - keep `training.final_exact_eval: true` so final benchmark semantics stay complete
+- Per-epoch metric plot exports:
+  - `training.plot_metrics_enabled: true` enables metric figure export after each epoch CSV append
+  - `training.plot_metrics_every_n_epochs: 1` controls plot cadence
+  - `training.plot_metrics_per_metric: true` also writes one PNG per metric
+  - Plots are written under `outputs/train/<run_id>/plots/`
+  - When `training.metrics_every_n_epochs > 1`, placeholder zero rows from skipped metric epochs are ignored in plotting to avoid misleading curves.
 - **Tiny overfit**: use very small `synthetic.num_samples_*`, `training.num_epochs: 1`, and a small `data.box_size` (e.g. 32) to sanity-check the pipeline (`configs/run.yaml` is a minimal example).
 
 ### Resume from checkpoint
@@ -188,10 +194,12 @@ Model outputs are in the **centered** frame; when you run inference, **centers i
 
 ## Multi-model experiments (YAML-only)
 
-- Set `**model.name`** to a registered architecture: `baseline_cnn` (default) or `detr3d` (CNN + Transformer decoder). Constructor kwargs come from `model.*` and `data.*` (see `density2sse/model/registry.py`).
+- Set `**model.name`** to a registered architecture: `baseline_cnn` (default), `detr3d`, `unet_sethead`, `slot_attention3d`, or `detr3d_multiscale`.
+- Architecture knobs are now grouped under `model.arch.*` (recommended), with backward-compatible fallback from legacy flat keys (`model.d_model`, `model.nhead`, etc.).
+- Full architecture details and extension checklist: [`docs/model_architecture.md`](docs/model_architecture.md).
 - `**loss**`: optional `w_render` (soft Gaussian vs downsampled mask), `w_clash` (axis proximity), `w_boundary` (endpoint mask support). Defaults are `0` (core Hungarian loss only).
 - **Run ID** includes the model name (`outputs/train/<timestamp>_<model>_<id>/`) for parallel comparisons.
-- Example configs: `[configs/train_baseline.yaml](configs/train_baseline.yaml)`, `[configs/train_render.yaml](configs/train_render.yaml)`, `[configs/train_detr3d.yaml](configs/train_detr3d.yaml)`.
+- Example configs: `[configs/train_baseline.yaml](configs/train_baseline.yaml)`, `[configs/train_render.yaml](configs/train_render.yaml)`, `[configs/train_detr3d.yaml](configs/train_detr3d.yaml)`, `[configs/train_unet_sethead.yaml](configs/train_unet_sethead.yaml)`, `[configs/train_slot_attention3d.yaml](configs/train_slot_attention3d.yaml)`, `[configs/train_detr3d_multiscale.yaml](configs/train_detr3d_multiscale.yaml).
 - **Notebook**: `[notebooks/benchmark.ipynb](notebooks/benchmark.ipynb)` loads all `outputs/train/*/metrics.csv` with pandas (install `pip install -e ".[dev]"` for pandas).
 - **CLI helper**: `python tools/compare_runs.py outputs/train`
 
@@ -203,6 +211,8 @@ Model outputs are in the **centered** frame; when you run inference, **centers i
   - `checkpoints/best.pt`, `last.pt`: PyTorch weights, epoch, and `**model_config**` (includes `model_name` for registry reload) for inference.
   - Per-epoch checkpoints: by default `training.save_every_epoch` is **true** — each epoch writes `checkpoints/epoch_{epoch:04d}.pt` (same payload as `last.pt`). Set `training.save_every_epoch: false` to skip these files and only keep `last.pt` / `best.pt`. Pattern: `training.checkpoint_pattern`. Pruning: `training.keep_last_k_epoch_checkpoints` (0 = keep all `epoch_*.pt`).
   - `**metrics.csv`**: benchmark rows with columns `model_name`, `run_id`, `epoch`, `split` (`train` / `val`), `center_error`, `angle_error`, `length_error`, `coverage_ratio`, `clash_voxels`, `loss_total`. Older runs may have the legacy `epoch,train_loss,val_loss` format only.
+  - `plots/epoch_XXXX_summary.png`: summary trend figure up to epoch `XXXX` (train/val).
+  - `plots/epoch_XXXX_<metric>.png`: per-metric trend figures when `training.plot_metrics_per_metric: true` (`loss_total`, `center_error`, `angle_error`, `length_error`, `coverage_ratio`, `clash_voxels`).
   - `**example_0_overlay.png**`, `**example_1_overlay.png**`: central Z-slice of mask vs GT vs predicted helix tubes (when a validation set exists).
 - **Inference**: `*_pred.npz` / `*_pred.json` contain `K`, `centers`, `directions`, `lengths` (centers already aligned to the input MRC header frame when applicable).
 - **PDB**: one chain per helix, ALA residues, backbone atoms N, CA, C, O.
