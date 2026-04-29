@@ -1,0 +1,89 @@
+project:
+  name: density2sse
+  output_dir: outputs
+  seed: 42
+mode: train
+io:
+  input_mrc: null
+  output_dir: outputs/example
+  save_debug: true
+data:
+  dataset_type: synthetic
+  train_dir: data/train
+  val_dir: data/val
+  test_dir: data/test
+  voxel_size: 1.5
+  box_size: 96
+  threshold: 0.2
+  K_min: 2
+  K_max: 5
+synthetic:
+  enabled: true
+  num_samples_train: 2000
+  num_samples_val: 200
+  num_samples_test: 200
+  retry_limit: 500
+  renderer: cylinder
+  tube_radius: 2.5
+  length_min: 12.0
+  length_max: 30.0
+  export_mrc: false
+  export_pdb: false
+  num_workers: 1
+model:
+  name: baseline_cnn
+  in_channels: 1
+  base_channels: 16
+  hidden_dim: 256
+  d_model: 256
+  nhead: 8
+  num_decoder_layers: 2
+  dim_feedforward: 512
+training:
+  batch_size: 4
+  num_epochs: 2
+  learning_rate: 0.001
+  weight_decay: 1.0e-05
+  num_workers: 0
+  device: auto
+  tiny_overfit: false
+  tiny_num_samples: 8
+  save_every_epoch: true
+  checkpoint_pattern: epoch_{epoch:04d}.pt
+  keep_last_k_epoch_checkpoints: 0
+  metrics_train_max_batches: 8
+  metrics_every_n_epochs: 1
+  val_metrics_max_batches: null
+  metrics_compute_coverage: true
+  metrics_compute_clash: true
+  metrics_log_every_n_batches: 0
+  metrics_kernel_impl: optimized
+  metrics_backend: auto
+  metrics_profile_components: false
+  metrics_target_seconds: 0.0
+  adaptive_metrics_schedule: false
+  final_exact_eval: true
+  viz_enabled: true
+  viz_every_n_epochs: 1
+  viz_n_examples: 2
+loss:
+  w_pos: 1.0
+  w_dir: 1.0
+  w_len: 1.0
+  w_render: 0.0
+  w_clash: 0.0
+  w_boundary: 0.0
+inference:
+  K: 3
+  checkpoint: outputs/train/example/checkpoints/best.pt
+  export_pdb: true
+  input_mrc: null
+  output_prefix: outputs/infer/run
+  write_frame_json: true
+export:
+  input_npz: null
+  output_pdb: outputs/export/model.pdb
+run:
+  stages:
+  - generate-data
+  - train

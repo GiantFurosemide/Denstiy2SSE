@@ -35,14 +35,14 @@ class HelixNPZDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         path = os.path.join(self.directory, self.files[idx])
-        z = np.load(path)
-        mask = z[S.MASK].astype(np.float32)
+        with np.load(path) as z:
+            mask = np.asarray(z[S.MASK], dtype=np.float32)
+            k = int(z[S.K])
+            centers = np.asarray(z[S.CENTERS], dtype=np.float32)
+            dirs = np.asarray(z[S.DIRECTIONS], dtype=np.float32)
+            lens = np.asarray(z[S.LENGTHS], dtype=np.float32)
         if self.box_size is not None and mask.shape[0] != self.box_size:
             raise ValueError(f"Expected box {self.box_size}, got {mask.shape}")
-        k = int(z[S.K])
-        centers = z[S.CENTERS].astype(np.float32)
-        dirs = z[S.DIRECTIONS].astype(np.float32)
-        lens = z[S.LENGTHS].astype(np.float32)
         if k > self.max_K:
             raise ValueError(f"Sample K={k} exceeds max_K={self.max_K}")
 

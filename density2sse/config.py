@@ -38,11 +38,26 @@ DEFAULTS: Dict[str, Any] = {
         "export_pdb": False,
         "num_workers": 1,
     },
+    "prepare_data": {
+        "annotation_path": None,
+        "mrc_root": ".",
+        "sample_id_key": "sample_id",
+        "mrc_path_key": "mrc_path",
+        "split_key": "split",
+        "default_split": "train",
+        "strict": True,
+        "output_meta_json": True,
+        "source_type": "real_data",
+    },
     "model": {
         "name": "baseline_cnn",
         "in_channels": 1,
         "base_channels": 16,
         "hidden_dim": 256,
+        "d_model": 256,
+        "nhead": 8,
+        "num_decoder_layers": 2,
+        "dim_feedforward": 512,
     },
     "training": {
         "batch_size": 8,
@@ -50,14 +65,43 @@ DEFAULTS: Dict[str, Any] = {
         "learning_rate": 1e-3,
         "weight_decay": 1e-5,
         "num_workers": 0,
-        "device": "cpu",
+        "device": "auto",
         "tiny_overfit": False,
         "tiny_num_samples": 8,
         "save_every_epoch": True,
         "checkpoint_pattern": "epoch_{epoch:04d}.pt",
         "keep_last_k_epoch_checkpoints": 0,
+        "metrics_train_max_batches": 8,
+        "metrics_every_n_epochs": 1,
+        "val_metrics_max_batches": None,
+        "metrics_compute_coverage": True,
+        "metrics_compute_clash": True,
+        "metrics_log_every_n_batches": 0,
+        "metrics_kernel_impl": "optimized",
+        "metrics_backend": "auto",
+        "metrics_profile_components": False,
+        "metrics_target_seconds": 0.0,
+        "adaptive_metrics_schedule": False,
+        "final_exact_eval": True,
+        "resume": {
+            "enabled": False,
+            "checkpoint": None,
+            "mode": "weights_only",
+            "reset_lr": False,
+            "strict_load": True,
+        },
+        "viz_enabled": True,
+        "viz_every_n_epochs": 1,
+        "viz_n_examples": 2,
     },
-    "loss": {"w_pos": 1.0, "w_dir": 1.0, "w_len": 1.0},
+    "loss": {
+        "w_pos": 1.0,
+        "w_dir": 1.0,
+        "w_len": 1.0,
+        "w_render": 0.0,
+        "w_clash": 0.0,
+        "w_boundary": 0.0,
+    },
     "inference": {
         "K": 3,
         "checkpoint": "outputs/train/example/checkpoints/best.pt",
@@ -104,10 +148,17 @@ def validate_config(cfg: Dict[str, Any], purpose: str) -> None:
         for k in ("synthetic", "data"):
             if k not in cfg:
                 raise ValueError(f"Missing section {k}")
+    elif purpose == "prepare-data":
+        pd = cfg.get("prepare_data", {})
+        if not pd.get("annotation_path"):
+            raise ValueError("prepare_data.annotation_path is required for prepare-data")
     elif purpose == "train":
         for k in ("training", "model", "data", "loss"):
             if k not in cfg:
                 raise ValueError(f"Missing section {k}")
+        resume = cfg["training"].get("resume", {})
+        if resume.get("enabled") and not resume.get("checkpoint"):
+            raise ValueError("training.resume.checkpoint is required when training.resume.enabled is true")
         if cfg["training"].get("tiny_overfit"):
             pass
     elif purpose == "infer":

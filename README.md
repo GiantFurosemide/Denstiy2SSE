@@ -17,7 +17,24 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
+On some **SLURM clusters**, login nodes may not expose GPUs, so `pip` can end up with a CPU-only PyTorch build by default. Before running training on GPU compute nodes, force-install a CUDA wheel explicitly:
+
+```bash
+# example: CUDA 12.1 wheels from official PyTorch index
+pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+Adjust `cu121` to match your cluster CUDA runtime (for example `cu118`, `cu124`).
+
 Requires **Python ≥ 3.9**, **PyTorch**, **mrcfile**, **NumPy/SciPy**, **PyYAML**, **Biopython ≥ 1.85** (PIC/IC helix builder), **tqdm**, **matplotlib**.
+
+## Device selection
+
+- `training.device: auto` (or empty) resolves in this order: **CUDA** if available, else **MPS** on **macOS** when the PyTorch MPS backend is available, else **CPU**.
+- Explicit values such as `cuda:0`, `mps`, or `cpu` are honored when the hardware/software allows; if you request `cuda` but no CUDA runtime is present, the code falls back to the same **auto** chain (with a warning). If you request `mps` but MPS is unavailable, it also falls back to **auto**.
+- To **force CPU** on a machine that has a GPU (e.g. debugging), set **`DENSITY2SSE_FORCE_CPU=1`**. Then `cpu` stays on CPU; `auto` also stays on CPU.
+- To **disable MPS** (e.g. driver issues on some macOS versions), set **`DENSITY2SSE_DISABLE_MPS=1`**; the auto chain will skip MPS and use CPU when CUDA is absent.
+- **Multi-GPU** `DataParallel` is used only when the resolved device is **CUDA** and more than one GPU is visible; MPS does not use `DataParallel` in the same way.
 
 ## Quick start
 
@@ -30,13 +47,16 @@ cd my_projects
 # 2) Generate synthetic NPZ datasets (edit configs/generate_data.yaml first)
 density2sse generate-data -i configs/generate_data.yaml
 
-# 3) Train (edit configs/train.yaml)
+# 3) (Alternative) Convert real MRC + global labels to NPZ
+# density2sse prepare-data -i configs/prepare_data.yaml
+
+# 4) Train (edit configs/train.yaml)
 density2sse train -i configs/train.yaml
 
-# 4) Inference — set inference.input_mrc and inference.checkpoint in configs/infer.yaml
+# 5) Inference — set inference.input_mrc and inference.checkpoint in configs/infer.yaml
 density2sse infer -i configs/infer.yaml
 
-# 5) Export NPZ → PDB only
+# 6) Export NPZ → PDB only
 density2sse export -i configs/export.yaml
 ```
 
@@ -61,6 +81,7 @@ pytest tests/ -q
 | ------------------------------------- | -------------------------------------------------------------------------------------- |
 | `density2sse init -o DIR`             | Create `configs/`, `data/`, `outputs/`, `logs/` and copy example YAMLs when available. |
 | `density2sse generate-data -i YAML`   | Synthetic train/val/test `.npz` under `data/{train,val,test}/`.                        |
+| `density2sse prepare-data -i YAML`    | Convert MRC masks + one global JSON/CSV annotation table into NPZ train/val/test data. |
 | `density2sse train -i YAML`           | Train baseline; writes `outputs/train/<run_id>/`.                                      |
 | `density2sse infer -i YAML`           | Inference on one MRC; writes `*_pred.npz`, `*_pred.json`, optional PDB.                |
 | `density2sse export -i YAML`          | Convert prediction NPZ to PDB.                                                         |
@@ -73,7 +94,9 @@ pytest tests/ -q
 
 - **All runtime parameters are YAML-driven.** Defaults live in `density2sse/config.py` and are merged with your file.
 - Every training/inference run should use a **resolved snapshot** (`config.resolved.yaml`) under the run directory where applicable.
-- Important groups: `project`, `data`, `synthetic`, `model`, `training`, `loss`, `inference`, `export`, `run`.
+- Important groups: `project`, `data`, `synthetic`, `prepare_data`, `model`, `training`, `loss`, `inference`, `export`, `run`.
+- New training throttling knobs are backward-compatible (old YAMLs still run): `training.metrics_every_n_epochs`, `training.val_metrics_max_batches`, `training.metrics_compute_coverage`, `training.metrics_compute_clash`, `training.metrics_log_every_n_batches`, `training.viz_enabled`, `training.viz_every_n_epochs`, `training.viz_n_examples`.
+- Backend/perf knobs for exact metrics: `training.metrics_kernel_impl` (`legacy`/`optimized`), `training.metrics_backend` (`auto`/`numpy`/`torch`), `training.metrics_profile_components`, `training.metrics_target_seconds`, `training.adaptive_metrics_schedule`, `training.final_exact_eval`.
 
 ## Data generation guide
 
@@ -81,18 +104,86 @@ pytest tests/ -q
 - Outputs: `data/train/*.npz` (and val/test). Optional `.mrc` / `.pdb` per sample if `synthetic.export_mrc` / `export_pdb` are `true`.
 - NPZ fields include at least: `mask`, `K`, `centers`, `directions`, `lengths`, `box_size_angstrom`, `voxel_size_angstrom`, `source_type`, `sample_id`.
 
+## Real-data preparation guide (MRC -> NPZ)
+
+- Use one global annotation table (`JSON` or `CSV`) with records for all samples.
+- Required record content per sample:
+  - `sample_id`
+  - `K`
+  - `centers` (shape `(K,3)`)
+  - `directions` (shape `(K,3)`)
+  - `lengths` (shape `(K,)`)
+  - optional `mrc_path` (relative to `prepare_data.mrc_root` if not absolute)
+  - optional `split` (`train` / `val` / `test`; fallback to `prepare_data.default_split`)
+- Run conversion:
+
+```bash
+density2sse prepare-data -i configs/prepare_data.yaml
+```
+
+- The converter writes NPZ samples under `data.train_dir` / `data.val_dir` / `data.test_dir` and optional `*.meta.json` sidecars.
+
 ## Training guide
 
 - Point `data.train_dir` / `data.val_dir` to folders of `.npz` files.
 - Set `data.K_max` ≥ largest **K** in the dataset; the model pads to `max_K = K_max`.
-- `training.device`: use `cuda` when available.
+- `training.device`: default `auto` (uses CUDA when available, else CPU). On multi-GPU nodes, training uses all visible GPUs via `DataParallel`.
+- If your YAML still says `training.device: cpu`, train/infer will still prefer CUDA when available on cluster nodes. Set environment variable `DENSITY2SSE_FORCE_CPU=1` to force CPU.
+- Per-epoch timings are logged for `train_epoch`, train metrics, `validate_epoch`, val metrics, overlay export, and checkpoint writes. If progress appears stuck, inspect these stage timings first.
+- For Slurm/cluster runs, reduce post-epoch CPU load:
+  - `training.metrics_every_n_epochs: 2` (or larger)
+  - `training.val_metrics_max_batches: 8` (or smaller for fast feedback)
+  - `training.metrics_compute_coverage: false` and `training.metrics_compute_clash: false` while debugging stalls
+  - `training.viz_enabled: false` or `training.viz_every_n_epochs: 5`
+- Useful heartbeat for long metrics phases: `training.metrics_log_every_n_batches: 5`.
+- For exact metrics with better throughput:
+  - `training.metrics_kernel_impl: optimized`
+  - `training.metrics_backend: auto` (uses torch backend on CUDA when available)
+  - `training.metrics_profile_components: true` for detailed component timing
+  - `training.adaptive_metrics_schedule: true` + `training.metrics_target_seconds` to auto-control metric cadence
+  - keep `training.final_exact_eval: true` so final benchmark semantics stay complete
 - **Tiny overfit**: use very small `synthetic.num_samples_*`, `training.num_epochs: 1`, and a small `data.box_size` (e.g. 32) to sanity-check the pipeline (`configs/run.yaml` is a minimal example).
+
+### Resume from checkpoint
+
+- Resume controls live under `training.resume`:
+  - `enabled: true`
+  - `checkpoint: path/to/last.pt`
+  - `mode: weights_only` or `full_resume`
+- Mode behavior:
+  - `weights_only`: load model weights only; training restarts from epoch 1.
+  - `full_resume`: load model + optimizer + epoch + best validation loss and continue from `last_epoch + 1`.
+- Optional:
+  - `training.resume.strict_load` (default `true`) for state-dict strictness.
+  - `training.resume.reset_lr` (full resume only) to force YAML learning rate after optimizer restore.
+- Older checkpoints without optimizer state are still loadable; full resume will continue without restored optimizer internals.
+
+Recommended Slurm profile snippet:
+
+```yaml
+training:
+  device: auto
+  num_workers: 2
+  metrics_kernel_impl: optimized
+  metrics_backend: auto
+  metrics_profile_components: true
+  adaptive_metrics_schedule: true
+  metrics_target_seconds: 120
+  metrics_every_n_epochs: 2
+  metrics_train_max_batches: 4
+  val_metrics_max_batches: 8
+  metrics_compute_coverage: true
+  metrics_compute_clash: true
+  metrics_log_every_n_batches: 5
+  viz_enabled: false
+  final_exact_eval: true
+```
 
 ## Inference guide
 
 - **Mask shape** must be a cube matching **training** grid size (same `box_size` as the checkpoint).
-- **`inference.K`** is how many helices you ask for; it must be **≤ `data.K_max` from training** (the model has that many output slots).
-- Checkpoints saved by current training runs include embedded **`model_config`**, so the network shape is loaded from **`best.pt` / `last.pt`** and your inference YAML no longer has to match `data.K_max` / `model.*` exactly. Older checkpoints without `model_config` still require YAML to match training.
+- `**inference.K`** is how many helices you ask for; it must be **≤ `data.K_max` from training** (the model has that many output slots).
+- Checkpoints saved by current training runs include embedded `**model_config`**, so the network shape is loaded from `**best.pt` / `last.pt**` and your inference YAML no longer has to match `data.K_max` / `model.*` exactly. Older checkpoints without `model_config` still require YAML to match training.
 - Set `inference.input_mrc`, `inference.checkpoint`, and `inference.output_prefix`.
 - Optional `inference.write_frame_json` (default `true`): writes `<prefix>_frame.json` describing the MRC corner origin and the shift applied so PDB coordinates match the map header in viewers.
 - Outputs: `<prefix>_pred.npz`, `<prefix>_pred.json`, optional `<prefix>_frame.json`, and `<prefix>_pred.pdb` if `inference.export_pdb` is true.
@@ -103,13 +194,24 @@ Training and inference use a **box-centered** lab frame in ångströms: voxel ce
 
 Model outputs are in the **centered** frame; when you run inference, **centers in NPZ/JSON/PDB are shifted** by `origin_corner − canonical_corner` so they align with the **input map’s** `origin` (Z,Y,X order). If your map was written with `write_mrc(..., convention="centered")` (default), no net shift is needed when the box matches training.
 
+## Multi-model experiments (YAML-only)
+
+- Set `**model.name`** to a registered architecture: `baseline_cnn` (default) or `detr3d` (CNN + Transformer decoder). Constructor kwargs come from `model.*` and `data.*` (see `density2sse/model/registry.py`).
+- `**loss**`: optional `w_render` (soft Gaussian vs downsampled mask), `w_clash` (axis proximity), `w_boundary` (endpoint mask support). Defaults are `0` (core Hungarian loss only).
+- **Run ID** includes the model name (`outputs/train/<timestamp>_<model>_<id>/`) for parallel comparisons.
+- Example configs: `[configs/train_baseline.yaml](configs/train_baseline.yaml)`, `[configs/train_render.yaml](configs/train_render.yaml)`, `[configs/train_detr3d.yaml](configs/train_detr3d.yaml)`.
+- **Notebook**: `[notebooks/benchmark.ipynb](notebooks/benchmark.ipynb)` loads all `outputs/train/*/metrics.csv` with pandas (install `pip install -e ".[dev]"` for pandas).
+- **CLI helper**: `python tools/compare_runs.py outputs/train`
+
 ## Output file meanings
 
 - `**outputs/train/<run_id>/`**
-  - `config.resolved.yaml`: merged configuration.
-  - `checkpoints/best.pt`, `last.pt`: PyTorch weights, epoch, and **`model_config`** (architecture) for inference.
+  - `config.resolved.yaml` and `**config.yaml`**: merged configuration (duplicate filenames for notebook/tools).
+  - `**model.txt**`: short architecture summary.
+  - `checkpoints/best.pt`, `last.pt`: PyTorch weights, epoch, and `**model_config**` (includes `model_name` for registry reload) for inference.
   - Per-epoch checkpoints: by default `training.save_every_epoch` is **true** — each epoch writes `checkpoints/epoch_{epoch:04d}.pt` (same payload as `last.pt`). Set `training.save_every_epoch: false` to skip these files and only keep `last.pt` / `best.pt`. Pattern: `training.checkpoint_pattern`. Pruning: `training.keep_last_k_epoch_checkpoints` (0 = keep all `epoch_*.pt`).
-  - `metrics.csv`: epoch losses.
+  - `**metrics.csv`**: benchmark rows with columns `model_name`, `run_id`, `epoch`, `split` (`train` / `val`), `center_error`, `angle_error`, `length_error`, `coverage_ratio`, `clash_voxels`, `loss_total`. Older runs may have the legacy `epoch,train_loss,val_loss` format only.
+  - `**example_0_overlay.png**`, `**example_1_overlay.png**`: central Z-slice of mask vs GT vs predicted helix tubes (when a validation set exists).
 - **Inference**: `*_pred.npz` / `*_pred.json` contain `K`, `centers`, `directions`, `lengths` (centers already aligned to the input MRC header frame when applicable).
 - **PDB**: one chain per helix, ALA residues, backbone atoms N, CA, C, O.
 
@@ -133,8 +235,8 @@ Includes unit tests (helix geometry, renderer, config, matching, CLI) and an **e
 
 ### Troubleshooting
 
-- **NumPy 2.x + PyTorch errors** (`_ARRAY_API`, “compiled using NumPy 1.x”): this package pins **`numpy<2`** in `pyproject.toml` for ABI compatibility. In an existing env, run: `pip install 'numpy>=1.21,<2'` then reinstall torch if needed.
-- **`No module named pytest`**: install pytest as shown above.
+- **NumPy 2.x + PyTorch errors** (`_ARRAY_API`, “compiled using NumPy 1.x”): this package pins `**numpy<2`** in `pyproject.toml` for ABI compatibility. In an existing env, run: `pip install 'numpy>=1.21,<2'` then reinstall torch if needed.
+- `**No module named pytest**`: install pytest as shown above.
 
 ## Known limitations
 
@@ -142,7 +244,7 @@ Includes unit tests (helix geometry, renderer, config, matching, CLI) and an **e
 - **Ambiguity**: helix direction sign is handled with a sign-invariant cosine loss.
 - **Fixed grid**: inference MRC must match training box size and voxel spacing assumed in the config.
 - **ChimeraX molmap**: not wired in; use `renderer: cylinder` for fully pip-based workflows.
-- **Helix geometry**: backbone coordinates come from **Biopython** PIC/IC (`read_PIC_seq`, then φ/ψ/ω set like [`examples/Biopython_helix.py`](examples/Biopython_helix.py), default −57°/−47°/180°), then `internal_to_atom_coordinates()`, then a rigid fit to the canonical CA trace (`density2sse/geometry/peptide_build.py`). Requires **Biopython ≥ 1.85** (provides `read_PIC_seq`).
+- **Helix geometry**: backbone coordinates come from **Biopython** PIC/IC (`read_PIC_seq`, then φ/ψ/ω set like `[examples/Biopython_helix.py](examples/Biopython_helix.py)`, default −57°/−47°/180°), then `internal_to_atom_coordinates()`, then a rigid fit to the canonical CA trace (`density2sse/geometry/peptide_build.py`). Requires **Biopython ≥ 1.85** (provides `read_PIC_seq`).
 
 ---
 

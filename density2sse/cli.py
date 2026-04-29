@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,9 +14,12 @@ from typing import Any, Dict, List, Optional
 
 from density2sse import __version__
 from density2sse.config import resolve_config, save_resolved, validate_config
+from density2sse.data.mrc_to_npz import PrepareDataConfig, convert_global_annotations_to_npz
+from density2sse.model import registry as model_registry
 from density2sse.data.synthetic_generator import SyntheticConfig, generate_dataset_split
 from density2sse.export import export_pdb
 from density2sse.utils.logging_utils import setup_logging
+from density2sse.utils.runtime_device import get_torch_device
 from density2sse.utils.seed import set_seed
 
 LOG = setup_logging()
@@ -109,9 +113,36 @@ def _cmd_generate_data(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_train(args: argparse.Namespace) -> int:
-    import torch
+def _cmd_prepare_data(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config)
+    validate_config(cfg, "prepare-data")
+    pd = cfg["prepare_data"]
+    data = cfg["data"]
+    out_dirs = {
+        "train": _resolve_path(data["train_dir"]),
+        "val": _resolve_path(data["val_dir"]),
+        "test": _resolve_path(data["test_dir"]),
+    }
+    pcfg = PrepareDataConfig(
+        annotation_path=_resolve_path(pd["annotation_path"]),
+        mrc_root=_resolve_path(pd.get("mrc_root", ".")),
+        sample_id_key=str(pd.get("sample_id_key", "sample_id")),
+        mrc_path_key=str(pd.get("mrc_path_key", "mrc_path")),
+        split_key=str(pd.get("split_key", "split")),
+        default_split=str(pd.get("default_split", "train")),
+        strict=bool(pd.get("strict", True)),
+        output_meta_json=bool(pd.get("output_meta_json", True)),
+        source_type=str(pd.get("source_type", "real_data")),
+    )
+    counts = convert_global_annotations_to_npz(pcfg, out_dirs)
+    run_dir = os.path.join(cfg["project"]["output_dir"], "prepare_data", uuid.uuid4().hex[:8])
+    os.makedirs(run_dir, exist_ok=True)
+    save_resolved(cfg, os.path.join(run_dir, "config.resolved.yaml"))
+    print(f"Prepared NPZ data: train={counts['train']} val={counts['val']} test={counts['test']}")
+    return 0
 
+
+def _cmd_train(args: argparse.Namespace) -> int:
     from density2sse.train import trainer
 
     cfg = resolve_config(args.config)
@@ -119,7 +150,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     set_seed(int(cfg["project"]["seed"]))
     tcfg = cfg["training"]
     device_s = str(tcfg.get("device", "cpu"))
-    device = torch.device(device_s if torch.cuda.is_available() or device_s == "cpu" else "cpu")
+    device = get_torch_device(device_s, command="train")
     data = cfg["data"]
     train_dir = _resolve_path(data["train_dir"])
     val_dir = _resolve_path(data["val_dir"])
@@ -128,18 +159,22 @@ def _cmd_train(args: argparse.Namespace) -> int:
         # expect user generated tiny data; optionally subsample is not implemented
         train_dir = train_dir
 
-    run_id = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    model_name = str(cfg["model"].get("name", "baseline_cnn"))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", model_name).strip("_") or "model"
+    run_id = time.strftime("%Y%m%d_%H%M%S") + "_" + safe + "_" + uuid.uuid4().hex[:6]
     run_dir = os.path.join(cfg["project"]["output_dir"], "train", run_id)
     os.makedirs(run_dir, exist_ok=True)
-    save_resolved(cfg, os.path.join(run_dir, "config.resolved.yaml"))
-    trainer.run_training(cfg, train_dir, val_dir, run_dir, device)
+    resolved_path = os.path.join(run_dir, "config.resolved.yaml")
+    save_resolved(cfg, resolved_path)
+    shutil.copy(resolved_path, os.path.join(run_dir, "config.yaml"))
+    with open(os.path.join(run_dir, "model.txt"), "w", encoding="utf-8") as f:
+        f.write(model_registry.describe_model(cfg))
+    trainer.run_training(cfg, train_dir, val_dir, run_dir, device, run_id)
     print(f"Training finished. Run directory: {run_dir}")
     return 0
 
 
 def _cmd_infer(args: argparse.Namespace) -> int:
-    import torch
-
     from density2sse.infer import predictor
 
     cfg = resolve_config(args.config)
@@ -147,7 +182,7 @@ def _cmd_infer(args: argparse.Namespace) -> int:
     set_seed(int(cfg["project"]["seed"]))
     inf = cfg["inference"]
     device_s = str(cfg["training"].get("device", "cpu"))
-    device = torch.device(device_s if torch.cuda.is_available() or device_s == "cpu" else "cpu")
+    device = get_torch_device(device_s, command="infer")
     out = predictor.run_inference(cfg, device)
     if inf.get("export_pdb", True):
         npz_path = inf["output_prefix"] + "_pred.npz"
@@ -203,6 +238,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             rc = _cmd_generate_data(argparse.Namespace(config=cfg_path))
             if rc != 0:
                 return rc
+        elif st == "prepare-data":
+            rc = _cmd_prepare_data(argparse.Namespace(config=cfg_path))
+            if rc != 0:
+                return rc
         elif st == "train":
             rc = _cmd_train(argparse.Namespace(config=cfg_path))
             if rc != 0:
@@ -228,6 +267,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_g = sub.add_parser("generate-data", help="Generate synthetic NPZ datasets")
     p_g.add_argument("-i", "--config", required=True, help="YAML config")
     p_g.set_defaults(func=_cmd_generate_data)
+
+    p_pd = sub.add_parser("prepare-data", help="Convert MRC + global labels into NPZ dataset")
+    p_pd.add_argument("-i", "--config", required=True, help="YAML config")
+    p_pd.set_defaults(func=_cmd_prepare_data)
 
     p_t = sub.add_parser("train", help="Train baseline model")
     p_t.add_argument("-i", "--config", required=True, help="YAML config")

@@ -19,15 +19,16 @@ model:
 
 training:
   batch_size: 4
-  num_epochs: 2
+  num_epochs: 20
   learning_rate: 0.001
   weight_decay: 0.00001
   num_workers: 0
   device: auto
-  tiny_overfit: false
-  save_every_epoch: true
-  checkpoint_pattern: "epoch_{epoch:04d}.pt"
-  keep_last_k_epoch_checkpoints: 0
+  resume:
+    enabled: true
+    checkpoint: outputs/train/your_run/checkpoints/last.pt
+    mode: weights_only
+    strict_load: true
 
 loss:
   w_pos: 1.0

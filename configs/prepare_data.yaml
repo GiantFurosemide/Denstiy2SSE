@@ -1,0 +1,19 @@
+project:
+  output_dir: outputs
+  seed: 42
+
+data:
+  train_dir: data/train
+  val_dir: data/val
+  test_dir: data/test
+
+prepare_data:
+  annotation_path: data/annotations/global_labels.json
+  mrc_root: data/mrc
+  sample_id_key: sample_id
+  mrc_path_key: mrc_path
+  split_key: split
+  default_split: train
+  strict: true
+  output_meta_json: true
+  source_type: real_data
